@@ -491,22 +491,76 @@ class NitinEditor(QMainWindow):
 
     # ── UI building ───────────────────────────────────────────────────────────
 
+    # ── UI building ───────────────────────────────────────────────────────────
+
     def _build_ui(self) -> None:
+        self._create_actions()
         self._build_menu_bar()
         self._build_toolbar()
         self._build_central()
         self._build_status_bar()
+
+    def _create_actions(self) -> None:
+        self._action_new = QAction("📄 &New Tab", self)
+        self._action_new.setShortcuts([QKeySequence("Ctrl+N"), QKeySequence("Ctrl+T")])
+        self._action_new.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_new.setToolTip("Create a new untitled tab (Ctrl+N)")
+        self._action_new.triggered.connect(lambda: self._new_tab())
+
+        self._action_open = QAction("📂 &Open…", self)
+        self._action_open.setShortcut(QKeySequence("Ctrl+O"))
+        self._action_open.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_open.setToolTip("Open file (Ctrl+O)")
+        self._action_open.triggered.connect(self._open_file)
+
+        self._action_save = QAction("💾 &Save", self)
+        self._action_save.setShortcut(QKeySequence("Ctrl+S"))
+        self._action_save.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_save.setToolTip("Save current file (Ctrl+S)")
+        self._action_save.triggered.connect(self._save_file)
+
+        self._action_save_as = QAction("Save &As…", self)
+        self._action_save_as.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self._action_save_as.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_save_as.triggered.connect(self._save_file_as)
+
+        self._action_close_tab = QAction("Close Tab", self)
+        self._action_close_tab.setShortcut(QKeySequence("Ctrl+W"))
+        self._action_close_tab.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_close_tab.triggered.connect(self._close_current_tab)
+
+        self._action_run = QAction("▶  &Run", self)
+        self._action_run.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("F5")])
+        self._action_run.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_run.setToolTip("Run code (Ctrl+Enter or F5)")
+        self._action_run.triggered.connect(self._run_code)
+
+        self._action_stop = QAction("■  &Stop", self)
+        self._action_stop.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        self._action_stop.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_stop.setToolTip("Stop execution (Ctrl+Shift+C)")
+        self._action_stop.triggered.connect(self._stop_execution)
+
+        self._action_find = QAction("&Find…", self)
+        self._action_find.setShortcut(QKeySequence("Ctrl+F"))
+        self._action_find.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_find.triggered.connect(self._show_find)
+
+        self._action_replace = QAction("Find && &Replace…", self)
+        self._action_replace.setShortcut(QKeySequence("Ctrl+H"))
+        self._action_replace.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_replace.triggered.connect(self._show_find_replace)
 
     def _build_menu_bar(self) -> None:
         mb = self.menuBar()
 
         # File
         file_menu = mb.addMenu("&File")
-        self._add_menu_action(file_menu, "&New",             self._new_tab,          "Ctrl+N")
-        self._add_menu_action(file_menu, "&Open…",           self._open_file,        "Ctrl+O")
+        file_menu.addAction(self._action_new)
+        file_menu.addAction(self._action_open)
         file_menu.addSeparator()
-        self._add_menu_action(file_menu, "&Save",            self._save_file,        "Ctrl+S")
-        self._add_menu_action(file_menu, "Save &As…",        self._save_file_as,     "Ctrl+Shift+S")
+        file_menu.addAction(self._action_save)
+        file_menu.addAction(self._action_save_as)
         file_menu.addSeparator()
         self._recent_menu = file_menu.addMenu("Recent Files")
         self._refresh_recent_menu()
@@ -523,8 +577,8 @@ class NitinEditor(QMainWindow):
         self._add_menu_action(edit_menu, "&Paste",           self._paste,            "Ctrl+V")
         self._add_menu_action(edit_menu, "Select &All",      self._select_all,       "Ctrl+A")
         edit_menu.addSeparator()
-        self._add_menu_action(edit_menu, "&Find…",           self._show_find,        "Ctrl+F")
-        self._add_menu_action(edit_menu, "Find && &Replace…",self._show_find_replace,"Ctrl+H")
+        edit_menu.addAction(self._action_find)
+        edit_menu.addAction(self._action_replace)
 
         # View
         view_menu = mb.addMenu("&View")
@@ -534,16 +588,15 @@ class NitinEditor(QMainWindow):
 
         # Run
         run_menu = mb.addMenu("&Run")
-        self._add_menu_action(run_menu, "▶  &Run",           self._run_code,         "Ctrl+Return")
-        self._add_menu_action(run_menu, "▶  Run (F5)",       self._run_code,         "F5")
-        self._add_menu_action(run_menu, "■  &Stop",          self._stop_execution,   "Ctrl+Shift+C")
+        run_menu.addAction(self._action_run)
+        run_menu.addAction(self._action_stop)
         run_menu.addSeparator()
         self._add_menu_action(run_menu, "🌐  &Preview (HTML/CSS)", self._show_preview, "Ctrl+Shift+P")
 
         # Tabs
         tab_menu = mb.addMenu("&Tabs")
-        self._add_menu_action(tab_menu, "New Tab",           self._new_tab,          "Ctrl+T")
-        self._add_menu_action(tab_menu, "Close Tab",         self._close_current_tab,"Ctrl+W")
+        tab_menu.addAction(self._action_new)
+        tab_menu.addAction(self._action_close_tab)
         self._add_menu_action(tab_menu, "Next Tab",          self._next_tab,         "Ctrl+Tab")
         self._add_menu_action(tab_menu, "Previous Tab",      self._prev_tab,         "Ctrl+Shift+Tab")
 
@@ -586,9 +639,9 @@ class NitinEditor(QMainWindow):
             a.triggered.connect(slot)
             return a
 
-        tb.addAction(tb_action("📄 New",  self._new_tab,   "Ctrl+N", "New tab (Ctrl+N)"))
-        tb.addAction(tb_action("📂 Open", self._open_file, "Ctrl+O", "Open file (Ctrl+O)"))
-        tb.addAction(tb_action("💾 Save", self._save_file, "Ctrl+S", "Save file (Ctrl+S)"))
+        tb.addAction(self._action_new)
+        tb.addAction(self._action_open)
+        tb.addAction(self._action_save)
         tb.addSeparator()
 
         lang_label = QLabel("  Language: ")
@@ -846,13 +899,24 @@ class NitinEditor(QMainWindow):
 
     # ── Tab management ────────────────────────────────────────────────────────
 
+    def _generate_untitled_title(self) -> str:
+        existing_titles = {state.title for state in self._tab_states.values()}
+        if "Untitled" not in existing_titles:
+            return "Untitled"
+        i = 1
+        while f"Untitled {i}" in existing_titles:
+            i += 1
+        return f"Untitled {i}"
+
     def _new_tab(
         self,
-        title: str = "Untitled",
+        title: str | None = None,
         language: str | None = None,
         file_path: Path | None = None,
         code: str | None = None,
     ) -> int:
+        if title is None:
+            title = self._generate_untitled_title()
         lang = language or self._lang_combo.currentText()
         state = TabState(title=title, language=lang, file_path=file_path)
 

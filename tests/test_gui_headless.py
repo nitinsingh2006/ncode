@@ -149,7 +149,25 @@ def run_gui_tests():
     assert "Result: 10" in window._output_area.toPlainText(), f"Output was: {window._output_area.toPlainText()}"
     print("  ✓ Interactive C++ stdin via GUI verified (Result: 10)")
 
-    print("▶ Test 9: Clean closing")
+    print("▶ Test 9: Ctrl+N Action & Collision-Free Untitled Naming")
+    initial_count = window._tab_widget.count()
+    window._action_new.trigger()
+    assert window._tab_widget.count() == initial_count + 1
+    t1_state = window._current_state()
+    assert t1_state is not None
+    assert "Untitled" in t1_state.title, f"Expected Untitled title, got {t1_state.title}"
+    assert t1_state.is_modified == False, "New tab should not be dirty"
+
+    window._action_new.trigger()
+    assert window._tab_widget.count() == initial_count + 2
+    t2_state = window._current_state()
+    assert t2_state is not None
+    assert "Untitled" in t2_state.title, f"Expected Untitled title, got {t2_state.title}"
+    assert t2_state.is_modified == False
+
+    print("  ✓ Ctrl+N action & collision-free tab naming verified")
+
+    print("▶ Test 10: Clean closing")
     window.close()
     print("  ✓ Window close verified")
     app.exit(0)

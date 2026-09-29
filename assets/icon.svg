@@ -1,24 +1,50 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+      <stop offset="0%" stop-color="#181825" />
+      <stop offset="50%" stop-color="#1e1e2e" />
+      <stop offset="100%" stop-color="#11111b" />
     </linearGradient>
-    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#00b4d8;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0077b6;stop-opacity:1" />
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#89b4fa" />
+      <stop offset="100%" stop-color="#74c7ec" />
     </linearGradient>
-    <filter id="blur">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    <linearGradient id="codeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a6e3a1" />
+      <stop offset="100%" stop-color="#89dceb" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
-  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
-  <!-- Glow effect -->
-  <text x="64" y="78" font-family="monospace" font-size="52" font-weight="bold"
-        text-anchor="middle" fill="#0077b6" filter="url(#blur)" opacity="0.6">&lt;/&gt;</text>
-  <!-- Main text -->
-  <text x="64" y="78" font-family="monospace" font-size="52" font-weight="bold"
-        text-anchor="middle" fill="url(#glow)">&lt;/&gt;</text>
+
+  <!-- Base Rounded Card -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)" stroke="#313244" stroke-width="4" />
+
+  <!-- Window Header Bar -->
+  <rect x="16" y="16" width="480" height="96" rx="96" fill="#181825" />
+  <rect x="16" y="80" width="480" height="32" fill="#181825" />
+
+  <!-- Window Dots -->
+  <circle cx="72" cy="64" r="14" fill="#f38ba8" />
+  <circle cx="116" cy="64" r="14" fill="#f9e2af" />
+  <circle cx="160" cy="64" r="14" fill="#a6e3a1" />
+
+  <!-- Divider Line -->
+  <line x1="16" y1="112" x2="496" y2="112" stroke="#313244" stroke-width="3" />
+
+  <!-- Main Code Bracket Symbol </> -->
+  <g filter="url(#glow)">
+    <!-- < -->
+    <path d="M 170 210 L 90 280 L 170 350" fill="none" stroke="url(#accent)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+    <!-- / -->
+    <line x1="280" y1="185" x2="232" y2="375" stroke="#f5e0dc" stroke-width="32" stroke-linecap="round" />
+    <!-- > -->
+    <path d="M 342 210 L 422 280 L 342 350" fill="none" stroke="url(#codeGrad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Bottom Terminal Prompt Indicator -->
+  <text x="72" y="440" font-family="monospace" font-size="38" font-weight="bold" fill="#89b4fa">ncode_</text>
 </svg>
