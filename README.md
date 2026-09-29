@@ -37,11 +37,9 @@ ncode file.py      # Open Python file (auto-detects language)
 | HTML       | .html     | built-in preview |
 | CSS        | .css      | built-in preview |
 
-## Keyboard Shortcuts
-
 | Shortcut      | Action          |
 |---------------|-----------------|
-| Ctrl+Enter    | Run code        |
+| Ctrl+Enter / F5 | Run code        |
 | Ctrl+N        | New tab         |
 | Ctrl+O        | Open file       |
 | Ctrl+S        | Save            |
@@ -52,6 +50,16 @@ ncode file.py      # Open Python file (auto-detects language)
 | Ctrl+H        | Find & Replace  |
 | Ctrl+Shift+P  | HTML/CSS Preview|
 | Ctrl+Shift+C  | Stop execution  |
+
+## Testing
+
+```bash
+# Run unit & language test suite
+./.venv/bin/python3 tests/test_compiler.py
+./.venv/bin/python3 tests/test_runner_thread.py
+./.venv/bin/python3 tests/test_gui_headless.py
+bash tests/test_languages.sh
+```
 
 ## Project Structure
 
