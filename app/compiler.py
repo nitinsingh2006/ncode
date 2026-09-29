@@ -1,6 +1,6 @@
 """
 Nitin Editor - compiler.py
-Language detection, compilation, and execution logic.
+Language detection, compilation, and execution logic with real-time streaming and interactive stdin.
 
 Security notes:
 - No shell=True usage
@@ -14,10 +14,11 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # ── Language definitions ────────────────────────────────────────────────────
 
@@ -108,7 +109,6 @@ class RunResult:
     timed_out: bool = False
     cancelled: bool = False
     error_message: str = ""
-    # Distinguish compile errors from runtime errors
     is_compile_error: bool = False
 
 
@@ -117,28 +117,53 @@ class RunResult:
 class CodeRunner:
     """
     Handles compilation and execution of code in a subprocess.
-    Thread-safe stop() can be called from another thread.
+    Thread-safe methods write_stdin(), close_stdin(), and stop() can be called from any thread.
     """
 
     def __init__(self) -> None:
         self._process: Optional[subprocess.Popen] = None
         self._temp_dir: Optional[Path] = None
         self._stopped: bool = False
+        self._lock = threading.Lock()
 
     def stop(self) -> None:
         """Terminate the running process. Safe to call from any thread."""
         self._stopped = True
-        proc = self._process
-        if proc and proc.poll() is None:
-            try:
-                proc.terminate()
+        with self._lock:
+            proc = self._process
+            if proc and proc.poll() is None:
                 try:
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-            except (ProcessLookupError, PermissionError):
-                pass  # Process already gone
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+
+    def write_stdin(self, data: str) -> bool:
+        """Write string data into live stdin pipe of running process."""
+        with self._lock:
+            proc = self._process
+            if proc and proc.stdin and not proc.stdin.closed and proc.poll() is None:
+                try:
+                    proc.stdin.write(data.encode("utf-8"))
+                    proc.stdin.flush()
+                    return True
+                except (BrokenPipeError, OSError):
+                    pass
+        return False
+
+    def close_stdin(self) -> None:
+        """Send EOF to live stdin pipe."""
+        with self._lock:
+            proc = self._process
+            if proc and proc.stdin and not proc.stdin.closed:
+                try:
+                    proc.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
 
     def _make_temp_dir(self) -> Path:
         """Create an isolated temp directory for this run."""
@@ -158,19 +183,16 @@ class CodeRunner:
         stdin_data: str = "",
         timeout: int = 10,
         saved_path: Optional[Path] = None,
+        on_stdout: Optional[Callable[[str], None]] = None,
+        on_stderr: Optional[Callable[[str], None]] = None,
+        on_status: Optional[Callable[[str], None]] = None,
     ) -> RunResult:
         """
-        Execute the given code in the given language.
-        Returns a RunResult with stdout, stderr, exit_code, and timing.
-
-        stdin_data is passed to the subprocess via communicate(input=...).
-        This correctly handles: C scanf, C++ cin, Python input(), Java Scanner,
-        Node.js process.stdin — all receive the data atomically at start.
+        Execute code in specified language with real-time streaming and interactive stdin.
         """
         self._stopped = False
         result = RunResult()
 
-        # Check required tools
         missing = get_missing_tools(language)
         if missing:
             result.error_message = (
@@ -180,7 +202,6 @@ class CodeRunner:
             result.exit_code = -1
             return result
 
-        # HTML/CSS are not executed — they are previewed
         if language in ("HTML", "CSS"):
             result.error_message = "PREVIEW"
             return result
@@ -189,12 +210,13 @@ class CodeRunner:
         try:
             compile_cmd, run_cmd = _build_commands(language, code, temp_dir, saved_path)
 
-            # Compilation step (C, C++, Java)
             if compile_cmd:
+                if on_status:
+                    on_status("Compiling…")
                 compile_result = _run_subprocess(
                     compile_cmd,
                     stdin_data="",
-                    timeout=max(timeout, 30),  # Give compiler at least 30s
+                    timeout=max(timeout, 30),
                     cwd=temp_dir,
                     process_ref=self,
                 )
@@ -218,13 +240,18 @@ class CodeRunner:
                 result.cancelled = True
                 return result
 
-            # Execution step — pass stdin_data to the program
+            if on_status:
+                on_status("Running…")
+
             exec_result = _run_subprocess(
                 run_cmd,
                 stdin_data=stdin_data,
                 timeout=timeout,
                 cwd=temp_dir,
                 process_ref=self,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
+                on_status=on_status,
             )
             result = exec_result
             if self._stopped and not result.timed_out:
@@ -242,18 +269,14 @@ def _build_commands(
     temp_dir: Path,
     saved_path: Optional[Path],
 ) -> tuple[Optional[list[str]], Optional[list[str]]]:
-    """
-    Build (compile_cmd, run_cmd) for the given language.
-    Returns (None, run_cmd) for interpreted languages,
-    (compile_cmd, run_cmd) for compiled languages.
-    """
+
     compile_cmd: Optional[list[str]] = None
     run_cmd: Optional[list[str]] = None
 
     if language == "Python":
         src = temp_dir / "script.py"
         src.write_text(code, encoding="utf-8")
-        run_cmd = ["python3", "-u", str(src)]  # -u = unbuffered
+        run_cmd = ["python3", "-u", str(src)]
 
     elif language == "C":
         src = temp_dir / "main.c"
@@ -285,13 +308,10 @@ def _build_commands(
 
 
 def _extract_java_class_name(code: str) -> Optional[str]:
-    """Extract the public class name from Java source code."""
     import re
-    # public class Name
     m = re.search(r'\bpublic\s+class\s+(\w+)', code)
     if m:
         return m.group(1)
-    # fallback: any class Name
     m = re.search(r'\bclass\s+(\w+)', code)
     if m:
         return m.group(1)
@@ -304,31 +324,22 @@ def _run_subprocess(
     timeout: int = 10,
     cwd: Optional[Path] = None,
     process_ref: Optional[CodeRunner] = None,
+    on_stdout: Optional[Callable[[str], None]] = None,
+    on_stderr: Optional[Callable[[str], None]] = None,
+    on_status: Optional[Callable[[str], None]] = None,
 ) -> RunResult:
     """
-    Run a command as a subprocess and capture output.
-
-    stdin_data is encoded to UTF-8 and passed to the process via communicate().
-    This is the standard batch-stdin approach — correct for programs using
-    scanf, cin, input(), Scanner, process.stdin.read(), etc.
-
-    Note: communicate() sends ALL stdin at once then reads all output.
-    This is correct for competitive-programming-style programs. For fully
-    interactive programs (prompts after each input line), a Popen+pty approach
-    would be needed — not implemented here since it requires OS-specific code.
+    Run command as subprocess with live streaming of stdout/stderr and open stdin.
     """
     result = RunResult()
     start_time = time.monotonic()
 
-    # Build environment — include common binary paths
     env = os.environ.copy()
     path_extra = "/usr/local/bin:/usr/bin:/bin"
     current_path = env.get("PATH", "")
     if path_extra not in current_path:
         env["PATH"] = path_extra + ":" + current_path
-
-    # Prepare stdin bytes
-    stdin_bytes = stdin_data.encode("utf-8") if stdin_data else b""
+    env["PYTHONUNBUFFERED"] = "1"
 
     try:
         proc = subprocess.Popen(
@@ -338,33 +349,86 @@ def _run_subprocess(
             stderr=subprocess.PIPE,
             cwd=str(cwd) if cwd else None,
             env=env,
-            # No shell=True — security: cmd is always a list
+            bufsize=0,
         )
         if process_ref is not None:
-            process_ref._process = proc
+            with process_ref._lock:
+                process_ref._process = proc
 
-        try:
-            stdout_bytes, stderr_bytes = proc.communicate(
-                input=stdin_bytes,
-                timeout=timeout,
-            )
-            # Truncate large output
-            stdout_bytes = stdout_bytes[:MAX_OUTPUT_BYTES]
-            stderr_bytes = stderr_bytes[:MAX_OUTPUT_BYTES]
-            result.stdout = stdout_bytes.decode("utf-8", errors="replace")
-            result.stderr = stderr_bytes.decode("utf-8", errors="replace")
-            result.exit_code = proc.returncode
-
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        # Write preloaded stdin data if present without closing stdin
+        if stdin_data and proc.stdin:
             try:
-                stdout_bytes, stderr_bytes = proc.communicate(timeout=2)
+                data_to_write = stdin_data if stdin_data.endswith("\n") else stdin_data + "\n"
+                proc.stdin.write(data_to_write.encode("utf-8"))
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        def _reader(stream, chunks_list, callback):
+            if not stream:
+                return
+            try:
+                fd = stream.fileno()
+                while True:
+                    data = os.read(fd, 1024)
+                    if not data:
+                        break
+                    text = data.decode("utf-8", errors="replace")
+                    chunks_list.append(text)
+                    if callback:
+                        callback(text)
             except Exception:
-                stdout_bytes, stderr_bytes = b"", b""
-            result.stdout = stdout_bytes[:MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
-            result.stderr = stderr_bytes[:MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
-            result.timed_out = True
-            result.exit_code = -1
+                pass
+
+        t_out = threading.Thread(
+            target=_reader, args=(proc.stdout, stdout_chunks, on_stdout), daemon=True
+        )
+        t_err = threading.Thread(
+            target=_reader, args=(proc.stderr, stderr_chunks, on_stderr), daemon=True
+        )
+        t_out.start()
+        t_err.start()
+
+        # Monitoring loop
+        while True:
+            poll_ret = proc.poll()
+            if poll_ret is not None:
+                break
+
+            if process_ref and process_ref._stopped:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                break
+
+            elapsed = time.monotonic() - start_time
+            if elapsed > timeout:
+                result.timed_out = True
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                break
+
+            time.sleep(0.05)
+
+        t_out.join(timeout=1.0)
+        t_err.join(timeout=1.0)
+
+        # Safely close stdin if open
+        if proc.stdin and not proc.stdin.closed:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+        result.exit_code = proc.returncode if proc.returncode is not None else -1
+        result.stdout = "".join(stdout_chunks)[:MAX_OUTPUT_BYTES]
+        result.stderr = "".join(stderr_chunks)[:MAX_OUTPUT_BYTES]
 
     except FileNotFoundError as e:
         result.error_message = f"Command not found: {cmd[0]}\n{e}"
@@ -377,7 +441,8 @@ def _run_subprocess(
         result.exit_code = -1
     finally:
         if process_ref is not None:
-            process_ref._process = None
+            with process_ref._lock:
+                process_ref._process = None
 
     result.elapsed_time = time.monotonic() - start_time
     return result

@@ -99,7 +99,57 @@ def run_gui_tests():
     find_dlg.close()
     print("  ✓ Find dialog verified")
 
-    print("▶ Test 8: Clean closing")
+    print("▶ Test 8: Interactive C++ Stdin via GUI")
+    window._lang_combo.setCurrentText("C++")
+    cpp_editor = window._current_editor()
+    cpp_editor.setPlainText(
+        '#include <iostream>\n'
+        'using namespace std;\n'
+        'int main() {\n'
+        '    int i;\n'
+        '    cout << "Enter: " << flush;\n'
+        '    cin >> i;\n'
+        '    cout << "Result: " << i << endl;\n'
+        '    return 0;\n'
+        '}'
+    )
+    window._input_area.clear()
+    window._live_input.clear()
+
+    cpp_finished = False
+    cpp_result = None
+
+    def on_cpp_finished(result: RunResult):
+        nonlocal cpp_finished, cpp_result
+        cpp_finished = True
+        cpp_result = result
+        app.quit()
+
+    window._run_code()
+    assert window._runner_thread is not None
+    window._runner_thread.finished_signal.connect(on_cpp_finished)
+
+    # Poll until runner is running and streams 'Enter:'
+    def check_and_send():
+        if window._runner_thread and window._runner_thread.isRunning() and "Enter:" in window._output_area.toPlainText():
+            window._live_input.setText("10")
+            window._send_live_input()
+        else:
+            QTimer.singleShot(100, check_and_send)
+
+    QTimer.singleShot(100, check_and_send)
+
+    timer2 = QTimer()
+    timer2.singleShot(10000, app.quit)
+    app.exec()
+
+    assert cpp_finished, "C++ interactive execution did not finish"
+    assert cpp_result is not None
+    assert cpp_result.exit_code == 0, f"Exit code {cpp_result.exit_code}, stderr: {cpp_result.stderr}"
+    assert "Result: 10" in window._output_area.toPlainText(), f"Output was: {window._output_area.toPlainText()}"
+    print("  ✓ Interactive C++ stdin via GUI verified (Result: 10)")
+
+    print("▶ Test 9: Clean closing")
     window.close()
     print("  ✓ Window close verified")
     app.exit(0)

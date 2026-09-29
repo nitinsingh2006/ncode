@@ -1,6 +1,6 @@
 """
 Nitin Editor - runner.py
-Background thread that executes code and emits signals with results.
+Background thread that executes code, streams output in real-time, and handles interactive stdin.
 """
 from __future__ import annotations
 
@@ -18,13 +18,20 @@ class RunnerThread(QThread):
 
     Emits:
       - started_signal: when execution begins
+      - stdout_signal(str): real-time stdout chunks
+      - stderr_signal(str): real-time stderr chunks
+      - status_signal(str): execution status updates
       - finished_signal(RunResult): when execution completes (always emitted)
 
     Thread safety:
-      - stop_execution() can be called from the main thread at any time
-      - The underlying CodeRunner.stop() handles process termination
+      - send_stdin(data) can be called from main thread to send input
+      - close_stdin() can be called from main thread to send EOF
+      - stop_execution() can be called from main thread to terminate process
     """
     started_signal = Signal()
+    stdout_signal = Signal(str)
+    stderr_signal = Signal(str)
+    status_signal = Signal(str)
     finished_signal = Signal(object)  # RunResult
 
     def __init__(self, parent=None) -> None:
@@ -44,7 +51,7 @@ class RunnerThread(QThread):
         timeout: int = 10,
         saved_path: Optional[Path] = None,
     ) -> None:
-        """Configure before calling start()."""
+        """Configure execution options before calling start()."""
         self._language = language
         self._code = code
         self._stdin = stdin_data
@@ -61,6 +68,9 @@ class RunnerThread(QThread):
                 stdin_data=self._stdin,
                 timeout=self._timeout,
                 saved_path=self._saved_path,
+                on_stdout=lambda text: self.stdout_signal.emit(text),
+                on_stderr=lambda text: self.stderr_signal.emit(text),
+                on_status=lambda msg: self.status_signal.emit(msg),
             )
         except Exception as e:
             result = RunResult(
@@ -69,6 +79,14 @@ class RunnerThread(QThread):
             )
         self.finished_signal.emit(result)
 
+    def send_stdin(self, data: str) -> bool:
+        """Send input string to the live process stdin pipe. Safe to call from main thread."""
+        return self._runner.write_stdin(data)
+
+    def close_stdin(self) -> None:
+        """Close live stdin pipe (EOF). Safe to call from main thread."""
+        self._runner.close_stdin()
+
     def stop_execution(self) -> None:
-        """Request the running process to stop. Safe to call from main thread."""
+        """Request running process to stop. Safe to call from main thread."""
         self._runner.stop()

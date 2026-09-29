@@ -667,33 +667,41 @@ class NitinEditor(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header with Clear button
+        # Header with Clear and EOF buttons
         hdr = QWidget()
         hdr.setFixedHeight(32)
         hdr.setStyleSheet("background:#1a1a2e; border-bottom: 1px solid #313244;")
         hbox = QHBoxLayout(hdr)
         hbox.setContentsMargins(10, 0, 6, 0)
-        title = QLabel("⌨  INPUT (stdin)")
+        title = QLabel("⌨  CONSOLE / STDIN")
         title.setStyleSheet("color:#89b4fa; font-size:12px; font-weight:bold;")
         hbox.addWidget(title)
         hbox.addStretch()
+
+        eof_btn = QPushButton("EOF (Ctrl+D)")
+        eof_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#f9e2af;border:none;"
+            "font-size:11px;padding:2px 8px;}"
+            "QPushButton:hover{color:#ffffff;}"
+        )
+        eof_btn.clicked.connect(self._send_eof)
+        hbox.addWidget(eof_btn)
+
         clear_in_btn = QPushButton("Clear")
         clear_in_btn.setStyleSheet(
             "QPushButton{background:transparent;color:#6c7086;border:none;"
             "font-size:11px;padding:2px 8px;}"
             "QPushButton:hover{color:#cdd6f4;}"
         )
-        clear_in_btn.clicked.connect(lambda: self._input_area.clear())
+        clear_in_btn.clicked.connect(lambda: (self._input_area.clear(), self._live_input.clear()))
         hbox.addWidget(clear_in_btn)
         layout.addWidget(hdr)
 
         self._input_area = QPlainTextEdit()
         self._input_area.setPlaceholderText(
-            "Enter program input (stdin) here…\n\n"
-            "Example for: cin >> a >> b;\n"
-            "Enter: 5 10\n\n"
-            "Example for multiline:\n"
-            "5\n10"
+            "Console history & preloaded input (stdin)…\n\n"
+            "Preload input here before clicking RUN,\n"
+            "or type live input in the line below while running."
         )
         self._input_area.setStyleSheet(f"""
             QPlainTextEdit {{
@@ -706,6 +714,57 @@ class NitinEditor(QMainWindow):
             }}
         """)
         layout.addWidget(self._input_area)
+
+        # Bottom row for live interactive stdin entry
+        bottom_row = QWidget()
+        bottom_row.setStyleSheet("background:#181825; border-top: 1px solid #313244;")
+        row_layout = QHBoxLayout(bottom_row)
+        row_layout.setContentsMargins(6, 4, 6, 4)
+        row_layout.setSpacing(6)
+
+        prompt_lbl = QLabel(">")
+        prompt_lbl.setStyleSheet("color:#a6e3a1; font-weight:bold; font-size:13px;")
+        row_layout.addWidget(prompt_lbl)
+
+        self._live_input = QLineEdit()
+        self._live_input.setPlaceholderText("Type input and press Enter…")
+        self._live_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #1e1e2e;
+                color: #a6e3a1;
+                border: 1px solid #45475a;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-family: "JetBrains Mono","Fira Code","Consolas","Courier New",monospace;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #89b4fa;
+            }
+        """)
+        self._live_input.returnPressed.connect(self._send_live_input)
+        row_layout.addWidget(self._live_input)
+
+        self._send_btn = QPushButton("Send ↵")
+        self._send_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #313244;
+                color: #cdd6f4;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45475a;
+                color: #ffffff;
+            }
+        """)
+        self._send_btn.clicked.connect(self._send_live_input)
+        row_layout.addWidget(self._send_btn)
+
+        layout.addWidget(bottom_row)
         return panel
 
     def _make_output_panel(self) -> QWidget:
@@ -1156,28 +1215,62 @@ class NitinEditor(QMainWindow):
             saved_path=state.file_path,
         )
         self._runner_thread.started_signal.connect(self._on_run_started)
+        self._runner_thread.stdout_signal.connect(self._on_stdout_chunk)
+        self._runner_thread.stderr_signal.connect(self._on_stderr_chunk)
+        self._runner_thread.status_signal.connect(self._on_runner_status)
         self._runner_thread.finished_signal.connect(self._on_run_finished)
         self._runner_thread.start()
 
     def _stop_execution(self) -> None:
         if self._runner_thread and self._runner_thread.isRunning():
             self._runner_thread.stop_execution()
-            # Don't reset UI yet — wait for finished_signal which is always emitted
         else:
             self._set_running_state(False)
             self._set_status("Ready")
+
+    def _send_live_input(self) -> None:
+        text = self._live_input.text()
+        self._live_input.clear()
+
+        if not text and not (self._runner_thread and self._runner_thread.isRunning()):
+            return
+
+        data_to_send = text + "\n"
+
+        if self._runner_thread and self._runner_thread.isRunning():
+            self._runner_thread.send_stdin(data_to_send)
+            self._input_area.appendPlainText(f"> {text}")
+            self._set_status(f"Sent stdin: {text}")
+        else:
+            self._input_area.appendPlainText(text)
+
+    def _send_eof(self) -> None:
+        if self._runner_thread and self._runner_thread.isRunning():
+            self._runner_thread.close_stdin()
+            self._input_area.appendPlainText("[EOF sent]")
+            self._set_status("Sent EOF to process")
 
     def _set_running_state(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._stop_btn.setEnabled(running)
         if running:
             self._set_status("Running…")
-            self._exec_status.setText("")
-        else:
-            pass  # caller sets status
+            self._exec_status.setText("  ⚡ Running…")
+            self._exec_status.setStyleSheet(
+                "background:#181825; color:#89b4fa; font-size:11px; padding:3px 10px; border-top:1px solid #313244;"
+            )
 
     def _on_run_started(self) -> None:
-        self._append_output("⏳ Running…\n", "#7f849c")
+        self._set_status("Running…")
+
+    def _on_stdout_chunk(self, chunk: str) -> None:
+        self._append_output(chunk, "#cdd6f4")
+
+    def _on_stderr_chunk(self, chunk: str) -> None:
+        self._append_output(chunk, "#f38ba8")
+
+    def _on_runner_status(self, msg: str) -> None:
+        self._set_status(msg)
 
     def _on_run_finished(self, result) -> None:
         # Always restore UI
@@ -1188,11 +1281,8 @@ class NitinEditor(QMainWindow):
             self._set_status("Preview rendered.")
             return
 
-        # Clear the "Running…" line — start fresh
-        self._output_area.clear()
-
         if result.cancelled:
-            self._append_output("⏹  Execution stopped by user.\n", "#f9e2af")
+            self._append_output("\n⏹  Execution stopped by user.\n", "#f9e2af")
             self._set_status("Stopped.")
             self._exec_status.setText("  Stopped")
             self._exec_status.setStyleSheet(
@@ -1201,7 +1291,7 @@ class NitinEditor(QMainWindow):
             return
 
         if result.error_message:
-            self._append_output(f"❌  {result.error_message}\n", "#f38ba8")
+            self._append_output(f"\n❌  {result.error_message}\n", "#f38ba8")
             self._set_status("Error.")
             self._exec_status.setText("  Error")
             self._exec_status.setStyleSheet(
@@ -1209,21 +1299,14 @@ class NitinEditor(QMainWindow):
             )
             return
 
-        # ── Output rendering ──
+        # ── Compile errors ──
         if result.is_compile_error:
+            self._clear_output()
             self._append_output("── COMPILE ERROR ──\n", "#fab387")
             if result.stderr:
                 self._append_output(result.stderr, "#f38ba8")
             if result.stdout:
                 self._append_output(result.stdout, "#f38ba8")
-        else:
-            if result.stdout:
-                self._append_output(result.stdout, "#cdd6f4")
-            if result.stderr:
-                if result.stdout:
-                    self._append_output("\n", "#cdd6f4")
-                self._append_output("── STDERR ──\n", "#fab387")
-                self._append_output(result.stderr, "#f38ba8")
 
         if result.timed_out:
             self._append_output(
