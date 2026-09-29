@@ -17,8 +17,12 @@ else
     exit 1
 fi
 
-# Wayland/X11 compatibility
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+# Wayland/X11 auto-detection
+if [[ -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+else
+    export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+fi
 export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:---no-sandbox}"
 
 exec python3 "$MAIN_PY" "$@"
