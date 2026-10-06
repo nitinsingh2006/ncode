@@ -267,6 +267,87 @@ class CSSHighlighter(QSyntaxHighlighter):
                 self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
 
 
+class SQLHighlighter(QSyntaxHighlighter):
+    """SQL syntax highlighter with support for keywords, functions, strings,
+    numbers, comments, and operators."""
+    KEYWORDS = [
+        "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
+        "DELETE", "CREATE", "ALTER", "DROP", "TABLE", "DATABASE", "SCHEMA",
+        "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
+        "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "ALL",
+        "AS", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "EXISTS", "IS",
+        "NULL", "TRUE", "FALSE", "CASE", "WHEN", "THEN", "ELSE", "END",
+        "PRIMARY", "FOREIGN", "KEY", "REFERENCES", "UNIQUE", "DEFAULT",
+        "INDEX", "VIEW", "TRIGGER", "PROCEDURE", "FUNCTION", "BEGIN",
+        "COMMIT", "ROLLBACK", "TRANSACTION", "WITH", "DISTINCT", "ASC", "DESC",
+        "INTEGER", "TEXT", "REAL", "BLOB", "NUMERIC", "VARCHAR", "CHAR",
+        "BOOLEAN", "DATE", "DATETIME", "TIMESTAMP", "FLOAT", "DOUBLE",
+        "AUTOINCREMENT", "AUTO_INCREMENT", "CONSTRAINT", "CHECK", "TEMPORARY",
+        "IF", "REPLACE", "IGNORE", "INTO",
+    ]
+    FUNCTIONS = [
+        "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "IFNULL", "NULLIF",
+        "ROUND", "FLOOR", "CEIL", "ABS", "LENGTH", "UPPER", "LOWER", "TRIM",
+        "LTRIM", "RTRIM", "SUBSTR", "SUBSTRING", "REPLACE", "INSTR", "PRINTF",
+        "DATE", "TIME", "DATETIME", "JULIANDAY", "STRFTIME", "NOW", "TYPEOF",
+        "CAST", "CONVERT", "GROUP_CONCAT", "RANDOM", "LAST_INSERT_ROWID",
+        "CHANGES", "TOTAL_CHANGES", "ROW_NUMBER", "RANK", "DENSE_RANK",
+    ]
+
+    def __init__(self, document: QTextDocument) -> None:
+        super().__init__(document)
+        kw_pat = r"\b(" + "|".join(re.escape(k) for k in self.KEYWORDS) + r")\b"
+        fn_pat = r"\b(" + "|".join(re.escape(f) for f in self.FUNCTIONS) + r")(?=\s*\()\b"
+        self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = [
+            # Keywords (case-insensitive)
+            (QRegularExpression(kw_pat, QRegularExpression.PatternOption.CaseInsensitiveOption),
+             _fmt(C_KEYWORD, bold=True)),
+            # Built-in functions
+            (QRegularExpression(fn_pat, QRegularExpression.PatternOption.CaseInsensitiveOption),
+             _fmt(C_FUNCTION)),
+            # Line comments (-- ...)
+            (QRegularExpression(r"--[^\n]*"), _fmt(C_COMMENT, italic=True)),
+            # Numbers
+            (QRegularExpression(r"\b[0-9]+\.?[0-9]*([eE][+-]?[0-9]+)?\b"), _fmt(C_NUMBER)),
+            # Single-quoted strings
+            (QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), _fmt(C_STRING)),
+            # Double-quoted identifiers
+            (QRegularExpression(r"\"[^\"\\]*(\\.[^\"\\]*)*\""), _fmt(C_CLASS)),
+            # Backtick identifiers (MySQL-style)
+            (QRegularExpression(r"`[^`]*`"), _fmt(C_CLASS)),
+            # Operators
+            (QRegularExpression(r"[=<>!+\-*/]+"), _fmt(C_OPERATOR)),
+        ]
+        # Block comments (/* ... */)
+        self._block_start = QRegularExpression(r"/\*")
+        self._block_end = QRegularExpression(r"\*/")
+
+    def highlightBlock(self, text: str) -> None:
+        self._handle_block_comments(text)
+        for pattern, fmt in self._rules:
+            it = pattern.globalMatch(text)
+            while it.hasNext():
+                m = it.next()
+                self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
+
+    def _handle_block_comments(self, text: str) -> None:
+        fmt = _fmt(C_COMMENT, italic=True)
+        start_index = 0
+        if self.previousBlockState() != 1:
+            m = self._block_start.match(text)
+            start_index = m.capturedStart() if m.hasMatch() else -1
+        while start_index >= 0:
+            end_m = self._block_end.match(text, start_index)
+            if not end_m.hasMatch():
+                self.setCurrentBlockState(1)
+                self.setFormat(start_index, len(text) - start_index, fmt)
+                return
+            end_index = end_m.capturedStart() + 2
+            self.setFormat(start_index, end_index - start_index, fmt)
+            m = self._block_start.match(text, end_index)
+            start_index = m.capturedStart() if m.hasMatch() else -1
+
+
 class JavaHighlighter(QSyntaxHighlighter):
     KEYWORDS = [
         "abstract", "assert", "boolean", "break", "byte", "case", "catch",
@@ -331,6 +412,7 @@ HIGHLIGHTER_MAP: dict[str, type] = {
     "JavaScript": JavaScriptHighlighter,
     "HTML": HTMLHighlighter,
     "CSS": CSSHighlighter,
+    "SQL": SQLHighlighter,
 }
 
 

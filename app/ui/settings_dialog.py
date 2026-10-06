@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QGroupBox, QFormLayout, QDialogButtonBox
+    QPushButton, QGroupBox, QFormLayout, QScrollArea, QWidget,
 )
 
 
@@ -16,6 +16,10 @@ DIALOG_STYLE = """
 QDialog {
     background-color: #1e1e2e;
     color: #cdd6f4;
+}
+QScrollArea {
+    background-color: #1e1e2e;
+    border: none;
 }
 QGroupBox {
     background-color: #181825;
@@ -82,21 +86,32 @@ class SettingsDialog(QDialog):
         self._settings = dict(settings)
         self.setWindowTitle("Settings — Nitin Editor")
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(480)
+        self.setMinimumHeight(560)
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui()
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 20)
+        outer = QVBoxLayout(self)
+        outer.setSpacing(10)
+        outer.setContentsMargins(20, 20, 20, 20)
 
         # Title
         title = QLabel("⚙  Settings")
         title.setStyleSheet(
             "font-size: 18px; font-weight: bold; color: #89b4fa; margin-bottom: 4px;"
         )
-        layout.addWidget(title)
+        outer.addWidget(title)
+
+        # Scrollable area for groups
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(container)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 4, 0)
 
         # ── Appearance ──────────────────────────────────────────────────────
         appearance_group = QGroupBox("Appearance")
@@ -145,6 +160,58 @@ class SettingsDialog(QDialog):
         exec_form.addRow("Timeout (seconds):", self._timeout_combo)
         layout.addWidget(exec_group)
 
+        # ── SQL ─────────────────────────────────────────────────────────────
+        sql_group = QGroupBox("SQL")
+        sql_form = QFormLayout(sql_group)
+        sql_form.setSpacing(10)
+
+        self._sql_db_mode_combo = self._make_combo(
+            ["Temporary", "File"],
+            self._settings.get("sql_db_mode", "Temporary"),
+        )
+        sql_form.addRow("Default database mode:", self._sql_db_mode_combo)
+
+        self._sql_cleanup_combo = self._make_combo(
+            ["Yes", "No"],
+            "Yes" if self._settings.get("sql_auto_cleanup", True) else "No",
+        )
+        sql_form.addRow("Auto-cleanup temp databases:", self._sql_cleanup_combo)
+        layout.addWidget(sql_group)
+
+        # ── Terminal ─────────────────────────────────────────────────────────
+        term_group = QGroupBox("Terminal")
+        term_form = QFormLayout(term_group)
+        term_form.setSpacing(10)
+
+        self._term_os_combo = self._make_combo(
+            ["Linux", "macOS", "Windows"],
+            self._settings.get("terminal_default_os", "Linux"),
+        )
+        term_form.addRow("Default OS:", self._term_os_combo)
+
+        self._term_timeout_combo = self._make_combo(
+            ["10", "30", "60", "120"],
+            str(self._settings.get("terminal_timeout", 30)),
+        )
+        term_form.addRow("Command timeout (s):", self._term_timeout_combo)
+
+        self._term_history_combo = self._make_combo(
+            ["100", "250", "500", "1000"],
+            str(self._settings.get("terminal_history_size", 500)),
+        )
+        term_form.addRow("History size:", self._term_history_combo)
+
+        self._term_confirm_combo = self._make_combo(
+            ["Yes", "No"],
+            "Yes" if self._settings.get("terminal_confirm_dangerous", True) else "No",
+        )
+        term_form.addRow("Confirm dangerous commands:", self._term_confirm_combo)
+        layout.addWidget(term_group)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer.addWidget(scroll)
+
         # ── Buttons ─────────────────────────────────────────────────────────
         button_box = QHBoxLayout()
         button_box.addStretch()
@@ -158,7 +225,7 @@ class SettingsDialog(QDialog):
         ok_btn.clicked.connect(self._apply)
         button_box.addWidget(ok_btn)
 
-        layout.addLayout(button_box)
+        outer.addLayout(button_box)
 
     def _make_combo(self, items: list[str], current: str) -> QComboBox:
         combo = QComboBox()
@@ -175,6 +242,14 @@ class SettingsDialog(QDialog):
         self._settings["tab_size"] = int(self._tab_size_combo.currentText())
         self._settings["word_wrap"] = self._word_wrap_combo.currentText() == "On"
         self._settings["execution_timeout"] = int(self._timeout_combo.currentText())
+        # SQL
+        self._settings["sql_db_mode"] = self._sql_db_mode_combo.currentText()
+        self._settings["sql_auto_cleanup"] = self._sql_cleanup_combo.currentText() == "Yes"
+        # Terminal
+        self._settings["terminal_default_os"] = self._term_os_combo.currentText()
+        self._settings["terminal_timeout"] = int(self._term_timeout_combo.currentText())
+        self._settings["terminal_history_size"] = int(self._term_history_combo.currentText())
+        self._settings["terminal_confirm_dangerous"] = self._term_confirm_combo.currentText() == "Yes"
         self.settings_changed.emit(self._settings)
         self.accept()
 

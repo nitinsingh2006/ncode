@@ -19,6 +19,14 @@ DEFAULTS: dict[str, Any] = {
     "word_wrap": False,
     "execution_timeout": 10,
     "font_family": "JetBrains Mono,Fira Code,Consolas,Courier New,monospace",
+    # SQL settings
+    "sql_db_mode": "Temporary",   # "Temporary" or "File"
+    "sql_auto_cleanup": True,
+    # Terminal settings
+    "terminal_default_os": "Linux",
+    "terminal_timeout": 30,
+    "terminal_history_size": 500,
+    "terminal_confirm_dangerous": True,
 }
 
 

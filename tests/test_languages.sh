@@ -115,6 +115,19 @@ else
     skip "JavaScript" "node not found"
 fi
 
+# ── SQL ───────────────────────────────────────────────────────────────────────
+echo "▶ SQL"
+if command -v python3 &>/dev/null; then
+    OUTPUT=$(python3 -c 'import sqlite3; conn=sqlite3.connect(":memory:"); cur=conn.cursor(); cur.execute("CREATE TABLE t (id INT, val TEXT);"); cur.execute("INSERT INTO t VALUES (1, \"SQL_OK\");"); cur.execute("SELECT val FROM t;"); print(cur.fetchone()[0])' 2>&1)
+    if [[ "$OUTPUT" == "SQL_OK" ]]; then
+        pass "SQL execution (sqlite3)"
+    else
+        fail "SQL execution" "$OUTPUT"
+    fi
+else
+    skip "SQL" "python3 not found"
+fi
+
 # ── C++ stdin test ────────────────────────────────────────────────────────────
 echo "▶ C++ with stdin"
 if command -v g++ &>/dev/null; then

@@ -167,7 +167,63 @@ def run_gui_tests():
 
     print("  ✓ Ctrl+N action & collision-free tab naming verified")
 
-    print("▶ Test 10: Clean closing")
+    print("▶ Test 10: SQL Execution via GUI runner")
+    window._lang_combo.setCurrentText("SQL")
+    sql_editor = window._current_editor()
+    sql_editor.setPlainText(
+        "CREATE TABLE test_gui (id INT, val TEXT);\n"
+        "INSERT INTO test_gui VALUES (1, 'hello');\n"
+        "SELECT * FROM test_gui;"
+    )
+
+    sql_finished = False
+    sql_res = None
+
+    def on_sql_finished(result):
+        nonlocal sql_finished, sql_res
+        sql_finished = True
+        sql_res = result
+        app.quit()
+
+    window._run_code()
+    assert hasattr(window, "_sql_thread") and window._sql_thread is not None
+    window._sql_thread.result_ready.connect(on_sql_finished)
+
+    timer3 = QTimer()
+    timer3.singleShot(10000, app.quit)
+    app.exec()
+
+    assert sql_finished, "SQL execution did not finish"
+    assert sql_res is not None
+    assert sql_res.success, f"SQL error: {sql_res.error}"
+    assert "hello" in window._output_area.toPlainText()
+    print("  ✓ SQL execution via GUI runner verified")
+
+    print("▶ Test 11: Terminal panel toggle & command execution")
+    window._show_terminal_panel()
+    assert hasattr(window, "_terminal_panel_widget")
+    assert window._terminal_panel_widget.isVisible()
+
+    term_finished = False
+    def on_term_done(result):
+        nonlocal term_finished
+        term_finished = True
+        app.quit()
+
+    window._term_input.setText("echo GUI_TERM_SUCCESS")
+    window._term_execute()
+    assert hasattr(window, "_term_thread") and window._term_thread is not None
+    window._term_thread.done_sig.connect(on_term_done)
+
+    timer4 = QTimer()
+    timer4.singleShot(10000, app.quit)
+    app.exec()
+
+    assert term_finished, "Terminal command execution did not finish"
+    assert "GUI_TERM_SUCCESS" in window._term_output.toPlainText()
+    print("  ✓ Terminal panel toggle & Linux command execution verified")
+
+    print("▶ Test 12: Clean closing")
     window.close()
     print("  ✓ Window close verified")
     app.exit(0)

@@ -33,9 +33,17 @@ EXTENSION_MAP: dict[str, str] = {
     ".html": "HTML",
     ".htm": "HTML",
     ".css": "CSS",
+    ".sql": "SQL",
+    ".db": "SQL",
+    ".sqlite": "SQL",
+    ".sqlite3": "SQL",
 }
 
-LANGUAGES: list[str] = ["Python", "C", "C++", "Java", "JavaScript", "HTML", "CSS"]
+# Programming language choices in the UI selector
+LANGUAGES: list[str] = ["Python", "C", "C++", "Java", "JavaScript", "HTML", "CSS", "SQL"]
+
+# Terminal/command environment entries (separate from programming languages)
+TERMINAL_ENVS: list[str] = ["Linux Terminal", "macOS Terminal", "Windows Terminal"]
 
 LANGUAGE_EXTENSIONS: dict[str, str] = {
     "Python": ".py",
@@ -45,6 +53,7 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     "JavaScript": ".js",
     "HTML": ".html",
     "CSS": ".css",
+    "SQL": ".sql",
 }
 
 # Max bytes captured from stdout/stderr to prevent memory exhaustion
@@ -84,6 +93,8 @@ def get_missing_tools(language: str) -> list[str]:
     elif language == "JavaScript":
         if not check_tool("node"):
             missing.append("node")
+    # SQL uses Python's built-in sqlite3 — always available with Python 3
+    # Terminal environments are handled by CommandRunner, not compiler
     return missing
 
 

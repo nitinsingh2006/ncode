@@ -35,12 +35,21 @@ from PySide6.QtWidgets import (
 )
 
 from app.compiler import (
-    LANGUAGES, LANGUAGE_EXTENSIONS, detect_language,
+    LANGUAGES, LANGUAGE_EXTENSIONS, TERMINAL_ENVS, detect_language,
     get_missing_tools, check_tool,
 )
 from app.runner import RunnerThread
 from app.settings import load_settings, save_settings, load_recent_files, add_recent_file
 from app.ui.settings_dialog import SettingsDialog
+
+# SQL execution
+from app.sql.executor import SQLExecutor, SQLResult
+
+# Terminal
+from app.terminal.command_runner import CommandRunner, CommandResult, get_host_os_name
+from app.terminal.safety import check_command, warning_message
+from app.terminal.history import load_history, save_history, add_command as history_add
+from app.terminal.command_reference import get_reference_text, lookup_equivalents
 
 # Optional: preview
 try:
@@ -89,6 +98,16 @@ DEFAULT_CODE: dict[str, str] = {
         '/* CSS Preview */\nbody {\n    background: #1e1e2e;\n'
         '    color: #cdd6f4;\n    font-family: Arial, sans-serif;\n'
         '    padding: 20px;\n}\n\nh1 {\n    color: #89b4fa;\n}\n'
+    ),
+    "SQL": (
+        '-- SQL (SQLite) — Nitin Editor\n'
+        'CREATE TABLE IF NOT EXISTS students (\n'
+        '    id      INTEGER PRIMARY KEY,\n'
+        '    name    TEXT    NOT NULL,\n'
+        '    marks   INTEGER\n'
+        ');\n\n'
+        "INSERT INTO students VALUES (1, 'Amit', 85), (2, 'Rahul', 92);\n\n"
+        'SELECT * FROM students;\n'
     ),
 }
 
@@ -472,6 +491,14 @@ class NitinEditor(QMainWindow):
         self._preview_dialog: QDialog | None = None
         self._preview_panel = None  # Created lazily
 
+        # Terminal state
+        self._term_runner: CommandRunner | None = None
+        self._term_runner_thread = None  # QThread wrapping CommandRunner
+        self._term_history: list[str] = load_history()
+        self._term_history_pos: int = -1    # position in history browsing
+        self._term_running: bool = False
+        self._sql_db_path: Path | None = None  # None = temporary
+
         self._setup_window()
         self._build_ui()
         self._apply_settings()
@@ -479,6 +506,7 @@ class NitinEditor(QMainWindow):
 
         if initial_file and initial_file.exists():
             self._open_file_path(initial_file)
+
 
     # ── Window setup ─────────────────────────────────────────────────────────
 
@@ -551,6 +579,13 @@ class NitinEditor(QMainWindow):
         self._action_replace.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self._action_replace.triggered.connect(self._show_find_replace)
 
+        self._action_open_terminal = QAction("⌨  &Terminal", self)
+        # Ctrl+Shift+T: does not conflict with existing shortcuts
+        self._action_open_terminal.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self._action_open_terminal.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_open_terminal.setToolTip("Open Terminal panel (Ctrl+Shift+T)")
+        self._action_open_terminal.triggered.connect(self._show_terminal_panel)
+
     def _build_menu_bar(self) -> None:
         mb = self.menuBar()
 
@@ -592,6 +627,13 @@ class NitinEditor(QMainWindow):
         run_menu.addAction(self._action_stop)
         run_menu.addSeparator()
         self._add_menu_action(run_menu, "🌐  &Preview (HTML/CSS)", self._show_preview, "Ctrl+Shift+P")
+
+        # Terminal
+        terminal_menu = mb.addMenu("&Terminal")
+        terminal_menu.addAction(self._action_open_terminal)
+        terminal_menu.addSeparator()
+        self._add_menu_action(terminal_menu, "Command &Reference", self._show_command_reference)
+        self._add_menu_action(terminal_menu, "Environment &Info", self._show_env_info)
 
         # Tabs
         tab_menu = mb.addMenu("&Tabs")
@@ -1069,7 +1111,9 @@ class NitinEditor(QMainWindow):
 
     def _update_language_ui(self, language: str) -> None:
         is_web = language in ("HTML", "CSS")
+        is_sql = language == "SQL"
         self._preview_btn.setVisible(is_web)
+        # Run button visible for code languages and SQL; hidden for web preview
         self._run_btn.setVisible(not is_web)
 
     # ── File operations ───────────────────────────────────────────────────────
@@ -1079,9 +1123,10 @@ class NitinEditor(QMainWindow):
             self,
             "Open File",
             str(Path.home()),
-            "All Supported (*.py *.c *.cpp *.cc *.cxx *.java *.js *.html *.htm *.css);;"
+            "All Supported (*.py *.c *.cpp *.cc *.cxx *.java *.js *.html *.htm *.css *.sql *.db *.sqlite *.sqlite3);;"
             "Python (*.py);;C (*.c);;C++ (*.cpp *.cc *.cxx);;Java (*.java);;"
-            "JavaScript (*.js);;HTML (*.html *.htm);;CSS (*.css);;All Files (*)",
+            "JavaScript (*.js);;HTML (*.html *.htm);;CSS (*.css);;SQL (*.sql);;"
+            "SQLite DB (*.db *.sqlite *.sqlite3);;All Files (*)",
         )
         if path_str:
             self._open_file_path(Path(path_str))
@@ -1241,6 +1286,11 @@ class NitinEditor(QMainWindow):
         # HTML/CSS → preview
         if state.language in ("HTML", "CSS"):
             self._show_preview()
+            return
+
+        # SQL → SQLite execution
+        if state.language == "SQL":
+            self._run_sql()
             return
 
         code = editor.get_text().strip()
@@ -1516,6 +1566,475 @@ class NitinEditor(QMainWindow):
     def _set_status(self, text: str) -> None:
         self._status_ready.setText(text)
 
+    # ── SQL execution ─────────────────────────────────────────────────────────
+
+    def _run_sql(self) -> None:
+        """Execute the current SQL tab contents using sqlite3 (built-in, no server needed)."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        sql = editor.get_text().strip()
+        if not sql:
+            self._clear_output()
+            self._append_output("⚠  No SQL to execute.\n", "#f9e2af")
+            return
+
+        if self._runner_thread and self._runner_thread.isRunning():
+            return
+
+        db_path = self._sql_db_path  # None = temp db
+
+        self._clear_output()
+        self._set_running_state(True)
+        self._append_output("⚙  Executing SQL (SQLite)…\n\n", "#89b4fa")
+
+        # Run in background thread using QThread to keep GUI responsive
+        from PySide6.QtCore import QThread, Signal as Sig
+
+        class _SQLThread(QThread):
+            result_ready = Sig(object)
+
+            def __init__(self, sql_text, db_path_):
+                super().__init__()
+                self._sql = sql_text
+                self._db = db_path_
+
+            def run(self):
+                executor = SQLExecutor()
+                r = executor.execute(self._sql, db_path=self._db)
+                self.result_ready.emit(r)
+
+        self._sql_thread = _SQLThread(sql, db_path)
+        self._sql_thread.result_ready.connect(self._on_sql_finished)
+        self._sql_thread.start()
+
+    def _on_sql_finished(self, result: SQLResult) -> None:
+        self._set_running_state(False)
+        if result.output:
+            self._append_output(result.output, "#cdd6f4")
+        if result.error:
+            self._append_output(f"❌  {result.error}\n", "#f38ba8")
+        status_text = "SQL OK ✓" if result.success else "SQL Error"
+        status_color = "#a6e3a1" if result.success else "#f38ba8"
+        self._set_status(status_text)
+        self._exec_status.setText(
+            f"  {status_text}   ·   Statements: {result.statement_count}"
+            f"   ·   Time: {result.elapsed_time:.3f}s"
+        )
+        self._exec_status.setStyleSheet(
+            f"background:#181825; color:{status_color}; font-size:11px;"
+            f" padding:3px 10px; border-top:1px solid #313244;"
+        )
+
+    def _select_sql_db(self) -> None:
+        """Open a dialog to choose a SQLite database file for SQL execution."""
+        from PySide6.QtWidgets import QFileDialog
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select SQLite Database",
+            str(Path.home()),
+            "SQLite Databases (*.db *.sqlite *.sqlite3);;All Files (*)",
+        )
+        if path_str:
+            self._sql_db_path = Path(path_str)
+            self._set_status(f"SQL DB: {self._sql_db_path.name}")
+            if hasattr(self, "_sql_db_label"):
+                self._sql_db_label.setText(f"DB: {self._sql_db_path.name}")
+        else:
+            self._sql_db_path = None
+            if hasattr(self, "_sql_db_label"):
+                self._sql_db_label.setText("DB: Temporary")
+
+    # ── Terminal panel ────────────────────────────────────────────────────────
+
+    def _show_terminal_panel(self) -> None:
+        """Show or focus the terminal panel (docked at the bottom)."""
+        if not hasattr(self, "_terminal_dock") or self._terminal_dock is None:
+            self._build_terminal_panel()
+        # Make visible
+        self._terminal_panel_widget.setVisible(True)
+        self._term_input.setFocus()
+
+    def _build_terminal_panel(self) -> None:
+        """
+        Build the terminal panel and insert it into the main vertical splitter
+        as a third pane below the existing code editor and input/output panes.
+        """
+        from PySide6.QtWidgets import QTabWidget as QTW
+
+        self._terminal_panel_widget = QWidget()
+        self._terminal_panel_widget.setStyleSheet("background:#11111b;")
+        tlay = QVBoxLayout(self._terminal_panel_widget)
+        tlay.setContentsMargins(0, 0, 0, 0)
+        tlay.setSpacing(0)
+
+        # Header bar
+        hdr = QWidget()
+        hdr.setFixedHeight(34)
+        hdr.setStyleSheet("background:#1a1a2e; border-bottom:1px solid #313244;")
+        hbox = QHBoxLayout(hdr)
+        hbox.setContentsMargins(10, 0, 8, 0)
+        hbox.setSpacing(8)
+
+        term_lbl = QLabel("\u2328  TERMINAL")
+        term_lbl.setStyleSheet("color:#89b4fa; font-size:12px; font-weight:bold;")
+        hbox.addWidget(term_lbl)
+
+        hbox.addWidget(QLabel("  OS:"))
+        self._term_os_combo = QComboBox()
+        for os_name in ["Linux", "macOS", "Windows"]:
+            self._term_os_combo.addItem(os_name)
+        default_os = self._settings.get("terminal_default_os", "Linux")
+        self._term_os_combo.setCurrentText(default_os)
+        self._term_os_combo.setMaximumWidth(120)
+        self._term_os_combo.setStyleSheet(
+            "QComboBox{background:#313244;color:#cdd6f4;border:1px solid #45475a;"
+            "border-radius:4px;padding:2px 6px;font-size:11px;}"
+            "QComboBox::drop-down{border:none;}"
+        )
+        hbox.addWidget(self._term_os_combo)
+
+        hbox.addStretch()
+
+        # SQL DB selector (shown when SQL tab is active)
+        self._sql_db_label = QLabel("DB: Temporary")
+        self._sql_db_label.setStyleSheet("color:#f9e2af; font-size:11px;")
+        self._sql_db_label.setVisible(False)
+        hbox.addWidget(self._sql_db_label)
+
+        self._sql_db_btn = QPushButton("Choose DB…")
+        self._sql_db_btn.setStyleSheet(
+            "QPushButton{background:#313244;color:#f9e2af;border:1px solid #45475a;"
+            "border-radius:4px;padding:2px 8px;font-size:11px;}"
+            "QPushButton:hover{background:#45475a;}"
+        )
+        self._sql_db_btn.clicked.connect(self._select_sql_db)
+        self._sql_db_btn.setVisible(False)
+        hbox.addWidget(self._sql_db_btn)
+
+        ref_btn = QPushButton("Reference")
+        ref_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#7f849c;border:none;font-size:11px;padding:2px 8px;}"
+            "QPushButton:hover{color:#cdd6f4;}"
+        )
+        ref_btn.clicked.connect(self._show_command_reference)
+        hbox.addWidget(ref_btn)
+
+        env_btn = QPushButton("Env Info")
+        env_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#7f849c;border:none;font-size:11px;padding:2px 8px;}"
+            "QPushButton:hover{color:#cdd6f4;}"
+        )
+        env_btn.clicked.connect(self._show_env_info)
+        hbox.addWidget(env_btn)
+
+        self._term_stop_btn = QPushButton("■ Stop")
+        self._term_stop_btn.setStyleSheet(
+            "QPushButton{background:#d20f39;color:white;border:none;border-radius:4px;"
+            "padding:2px 10px;font-size:11px;font-weight:bold;}"
+            "QPushButton:hover{background:#e81a44;}"
+            "QPushButton:disabled{background:#313244;color:#585b70;}"
+        )
+        self._term_stop_btn.setEnabled(False)
+        self._term_stop_btn.clicked.connect(self._term_stop)
+        hbox.addWidget(self._term_stop_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#6c7086;border:none;font-size:13px;padding:0 4px;}"
+            "QPushButton:hover{color:#cdd6f4;}"
+        )
+        close_btn.clicked.connect(lambda: self._terminal_panel_widget.setVisible(False))
+        hbox.addWidget(close_btn)
+
+        tlay.addWidget(hdr)
+
+        # Terminal output area
+        self._term_output = QPlainTextEdit()
+        self._term_output.setReadOnly(True)
+        self._term_output.setStyleSheet(
+            "QPlainTextEdit{background:#11111b;color:#cdd6f4;border:none;padding:8px;"
+            "font-family:'JetBrains Mono','Fira Code','Consolas','Courier New',monospace;"
+            "font-size:12px;}"
+        )
+        self._term_output.document().setMaximumBlockCount(3000)
+        tlay.addWidget(self._term_output)
+
+        # Input row
+        input_row = QWidget()
+        input_row.setStyleSheet("background:#181825; border-top:1px solid #313244;")
+        ilay = QHBoxLayout(input_row)
+        ilay.setContentsMargins(8, 4, 8, 4)
+        ilay.setSpacing(6)
+
+        prompt = QLabel("$")
+        prompt.setStyleSheet("color:#a6e3a1; font-weight:bold; font-size:13px; font-family:monospace;")
+        ilay.addWidget(prompt)
+
+        self._term_input = QLineEdit()
+        self._term_input.setPlaceholderText("Enter command and press Enter…")
+        self._term_input.setStyleSheet(
+            "QLineEdit{background:#1e1e2e;color:#a6e3a1;border:1px solid #45475a;"
+            "border-radius:4px;padding:4px 8px;"
+            "font-family:'JetBrains Mono','Fira Code','Consolas','Courier New',monospace;"
+            "font-size:12px;}"
+            "QLineEdit:focus{border:1px solid #89b4fa;}"
+        )
+        self._term_input.returnPressed.connect(self._term_execute)
+        self._term_input.installEventFilter(self)
+        ilay.addWidget(self._term_input)
+
+        run_cmd_btn = QPushButton("Run ↵")
+        run_cmd_btn.setStyleSheet(
+            "QPushButton{background:#313244;color:#cdd6f4;border:none;border-radius:4px;"
+            "padding:4px 12px;font-size:11px;font-weight:bold;}"
+            "QPushButton:hover{background:#45475a;}"
+        )
+        run_cmd_btn.clicked.connect(self._term_execute)
+        ilay.addWidget(run_cmd_btn)
+
+        tlay.addWidget(input_row)
+
+        # Add terminal panel to main vertical splitter
+        self._v_splitter.addWidget(self._terminal_panel_widget)
+        self._v_splitter.setSizes([440, 180, 150])
+        self._terminal_dock = self._terminal_panel_widget  # reference
+
+        # Connect tab change to update SQL DB selector visibility
+        self._tab_widget.currentChanged.connect(self._on_tab_changed_terminal)
+
+        # Greet
+        host = get_host_os_name()
+        self._term_append(
+            f"Nitin Editor Terminal  |  Host OS: {host}\n"
+            f"Linux: real execution  |  macOS/Windows: compatibility info only\n"
+            f"Type 'help' for quick reference. Type 'clear' to clear output.\n\n",
+            "#89b4fa",
+        )
+
+    def eventFilter(self, obj, event) -> bool:
+        """Handle ↑/↓ history navigation in terminal input."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent as QKE
+        if hasattr(self, "_term_input") and obj is self._term_input:
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                if key == Qt.Key.Key_Up:
+                    self._term_history_up()
+                    return True
+                elif key == Qt.Key.Key_Down:
+                    self._term_history_down()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _term_history_up(self) -> None:
+        if not self._term_history:
+            return
+        self._term_history_pos = min(
+            self._term_history_pos + 1, len(self._term_history) - 1
+        )
+        self._term_input.setText(self._term_history[self._term_history_pos])
+
+    def _term_history_down(self) -> None:
+        if self._term_history_pos <= 0:
+            self._term_history_pos = -1
+            self._term_input.clear()
+            return
+        self._term_history_pos -= 1
+        self._term_input.setText(self._term_history[self._term_history_pos])
+
+    def _on_tab_changed_terminal(self, _idx: int) -> None:
+        """Show/hide SQL DB selector when current tab language is SQL."""
+        state = self._current_state()
+        is_sql = state is not None and state.language == "SQL"
+        if hasattr(self, "_sql_db_label"):
+            self._sql_db_label.setVisible(is_sql)
+        if hasattr(self, "_sql_db_btn"):
+            self._sql_db_btn.setVisible(is_sql)
+
+    def _term_execute(self) -> None:
+        """Execute the command in the terminal input box."""
+        if not hasattr(self, "_term_output"):
+            self._show_terminal_panel()
+
+        cmd = self._term_input.text().strip()
+        self._term_input.clear()
+        self._term_history_pos = -1
+
+        if not cmd:
+            return
+
+        # Built-in commands
+        if cmd == "clear":
+            self._term_output.clear()
+            return
+        if cmd in ("help", "?"):
+            self._term_append(get_reference_text() + "\n\n", "#89b4fa")
+            return
+
+        # Add to persistent history
+        self._term_history = history_add(self._term_history, cmd)
+        save_history(self._term_history)
+
+        target_os = self._term_os_combo.currentText() if hasattr(self, "_term_os_combo") else "Linux"
+
+        # Show prompt echo
+        self._term_append(f"$ {cmd}\n", "#a6e3a1")
+
+        # Safety check (only for Linux commands that will actually execute)
+        if target_os == "Linux" and self._settings.get("terminal_confirm_dangerous", True):
+            danger = check_command(cmd, target_os)
+            if danger.is_dangerous:
+                msg = warning_message(cmd, danger.reason)
+                reply = QMessageBox.warning(
+                    self,
+                    "Dangerous Command",
+                    msg,
+                    QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if reply != QMessageBox.StandardButton.Ok:
+                    self._term_append("  [Command cancelled by user]\n\n", "#f9e2af")
+                    return
+
+        # Run in background thread
+        if self._term_running:
+            self._term_append("⚠  Another command is already running.\n\n", "#f9e2af")
+            return
+
+        from PySide6.QtCore import QThread, Signal as Sig
+
+        class _TermThread(QThread):
+            stdout_sig = Sig(str)
+            stderr_sig = Sig(str)
+            done_sig = Sig(object)
+
+            def __init__(self, command, os_, timeout_, cwd_):
+                super().__init__()
+                self._cmd = command
+                self._os = os_
+                self._timeout = timeout_
+                self._cwd = cwd_
+                self._runner = CommandRunner()
+
+            def run(self):
+                result = self._runner.run(
+                    command=self._cmd,
+                    target_os=self._os,
+                    timeout=self._timeout,
+                    cwd=self._cwd,
+                    on_stdout=lambda t: self.stdout_sig.emit(t),
+                    on_stderr=lambda t: self.stderr_sig.emit(t),
+                )
+                self.done_sig.emit(result)
+
+            def stop(self):
+                self._runner.stop()
+
+        timeout = self._settings.get("terminal_timeout", 30)
+        self._term_thread = _TermThread(cmd, target_os, timeout, str(Path.home()))
+        self._term_thread.stdout_sig.connect(
+            lambda t: self._term_append(t, "#cdd6f4")
+        )
+        self._term_thread.stderr_sig.connect(
+            lambda t: self._term_append(t, "#f38ba8")
+        )
+        self._term_thread.done_sig.connect(self._on_term_finished)
+        self._term_running = True
+        self._term_stop_btn.setEnabled(True)
+        self._term_thread.start()
+
+    def _on_term_finished(self, result: CommandResult) -> None:
+        self._term_running = False
+        if hasattr(self, "_term_stop_btn"):
+            self._term_stop_btn.setEnabled(False)
+
+        if result.simulated:
+            pass  # Message already emitted via on_stdout callback
+        elif result.timed_out:
+            self._term_append("\n⏱  Command timed out.\n\n", "#f9e2af")
+        elif result.cancelled:
+            self._term_append("\n⏹  Stopped.\n\n", "#f9e2af")
+        elif result.error_message:
+            self._term_append(f"\n❌  {result.error_message}\n\n", "#f38ba8")
+        else:
+            exit_str = f"(exit {result.exit_code})" if result.exit_code != 0 else ""
+            self._term_append(f"\n{exit_str}\n" if exit_str else "\n", "#6c7086")
+
+    def _term_stop(self) -> None:
+        if hasattr(self, "_term_thread") and self._term_thread.isRunning():
+            self._term_thread.stop()
+
+    def _term_append(self, text: str, color: str = "#cdd6f4") -> None:
+        if not hasattr(self, "_term_output"):
+            return
+        cursor = self._term_output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        fmt = cursor.charFormat()
+        fmt.setForeground(QColor(color))
+        cursor.setCharFormat(fmt)
+        cursor.insertText(text)
+        self._term_output.setTextCursor(cursor)
+        self._term_output.ensureCursorVisible()
+
+    # ── Command reference / environment ──────────────────────────────────────
+
+    def _show_command_reference(self) -> None:
+        """Show the cross-platform command reference in a dialog."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Cross-Platform Command Reference")
+        ref = get_reference_text()
+        msg.setText(f"<pre style='font-size:11px;'>{ref}</pre>")
+        msg.setStyleSheet(DARK_STYLE)
+        msg.exec()
+
+    def _show_env_info(self) -> None:
+        """Show real environment information for the current host OS."""
+        import shutil, platform as _plat
+
+        lines: list[str] = []
+
+        def _ver(cmd: str) -> str:
+            try:
+                r = __import__("subprocess").run(
+                    cmd.split(), capture_output=True, text=True, timeout=3
+                )
+                return (r.stdout or r.stderr).strip().split("\n")[0]
+            except Exception:
+                return ""
+
+        host_os = get_host_os_name()
+        lines.append(f"Host OS:      {host_os}")
+        lines.append(f"Platform:     {_plat.platform()}")
+        lines.append(f"Architecture: {_plat.machine()}")
+        lines.append(f"Kernel:       {_plat.release()}")
+        lines.append(f"Python:       {_plat.python_version()} ({shutil.which('python3') or 'not found'})")
+        lines.append("")
+
+        tools = [
+            ("node", "Node.js"),
+            ("gcc", "GCC"),
+            ("g++", "G++"),
+            ("java", "Java"),
+            ("sqlite3", "SQLite CLI"),
+            ("git", "Git"),
+            ("bash", "Bash"),
+        ]
+        for cmd, label in tools:
+            path = shutil.which(cmd)
+            if path:
+                ver = _ver(f"{cmd} --version")
+                lines.append(f"{label:<14}{ver or path}")
+            else:
+                lines.append(f"{label:<14}not found")
+
+        text = "\n".join(lines)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Environment Information")
+        msg.setText(f"<pre style='font-size:12px;'>{text}</pre>")
+        msg.setStyleSheet(DARK_STYLE)
+        msg.exec()
+
     # ── Help dialogs ──────────────────────────────────────────────────────────
 
     def _show_about(self) -> None:
@@ -1524,13 +2043,15 @@ class NitinEditor(QMainWindow):
             "About Nitin Editor",
             "<h2>Nitin Editor</h2>"
             "<p>A private local coding IDE for Nitin.</p>"
-            "<p><b>Version:</b> 1.1.0<br>"
+            "<p><b>Version:</b> 1.2.0<br>"
             "<b>Platform:</b> Ubuntu Linux / GNOME (Wayland)<br>"
             "<b>Built with:</b> Python 3 · PySide6 6.x</p>"
             "<p>Runs completely locally.<br>"
             "No cloud. No telemetry. No accounts.</p>"
             "<p><b>Supported Languages:</b><br>"
-            "Python · C · C++ · Java · JavaScript · HTML · CSS</p>",
+            "Python · C · C++ · Java · JavaScript · HTML · CSS · SQL</p>"
+            "<p><b>Terminal:</b><br>"
+            "Linux (real execution) · macOS / Windows (compatibility info)</p>",
         )
 
     def _show_shortcuts(self) -> None:
@@ -1617,6 +2138,14 @@ class NitinEditor(QMainWindow):
         if self._runner_thread and self._runner_thread.isRunning():
             self._runner_thread.stop_execution()
             self._runner_thread.wait(3000)
+
+        # Stop terminal process if running
+        if hasattr(self, "_term_thread") and self._term_thread.isRunning():
+            self._term_thread.stop()
+            self._term_thread.wait(2000)
+
+        # Persist terminal history
+        save_history(self._term_history)
 
         save_settings(self._settings)
         event.accept()

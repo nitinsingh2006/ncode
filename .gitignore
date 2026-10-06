@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 temp/
 .pytest_cache/
+*.db
+*.sqlite
+*.sqlite3
+
