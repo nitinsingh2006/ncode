@@ -22,7 +22,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QThread, Signal as Sig
 from PySide6.QtGui import (
     QAction, QFont, QIcon, QKeySequence, QColor,
     QTextCursor, QTextDocument,
@@ -67,6 +67,51 @@ except ImportError:
 
 ASSETS_DIR = _ROOT / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"
+
+
+# ── Top-Level Worker Threads ──────────────────────────────────────────────────
+
+class _SQLThread(QThread):
+    result_ready = Sig(object)
+
+    def __init__(self, sql_text: str, db_path_: Path | None, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._sql = sql_text
+        self._db = db_path_
+
+    def run(self) -> None:
+        executor = SQLExecutor()
+        r = executor.execute(self._sql, db_path=self._db)
+        self.result_ready.emit(r)
+
+
+class _TermThread(QThread):
+    stdout_sig = Sig(str)
+    stderr_sig = Sig(str)
+    done_sig = Sig(object)
+
+    def __init__(self, command: str, os_: str, timeout_: int, cwd_: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._cmd = command
+        self._os = os_
+        self._timeout = timeout_
+        self._cwd = cwd_
+        self._runner = CommandRunner()
+
+    def run(self) -> None:
+        result = self._runner.run(
+            command=self._cmd,
+            target_os=self._os,
+            timeout=self._timeout,
+            cwd=self._cwd,
+            on_stdout=lambda t: self.stdout_sig.emit(t),
+            on_stderr=lambda t: self.stderr_sig.emit(t),
+        )
+        self.done_sig.emit(result)
+
+    def stop(self) -> None:
+        self._runner.stop()
+
 
 # ── Default code snippets ────────────────────────────────────────────────────
 DEFAULT_CODE: dict[str, str] = {
@@ -1589,22 +1634,7 @@ class NitinEditor(QMainWindow):
         self._append_output("⚙  Executing SQL (SQLite)…\n\n", "#89b4fa")
 
         # Run in background thread using QThread to keep GUI responsive
-        from PySide6.QtCore import QThread, Signal as Sig
-
-        class _SQLThread(QThread):
-            result_ready = Sig(object)
-
-            def __init__(self, sql_text, db_path_):
-                super().__init__()
-                self._sql = sql_text
-                self._db = db_path_
-
-            def run(self):
-                executor = SQLExecutor()
-                r = executor.execute(self._sql, db_path=self._db)
-                self.result_ready.emit(r)
-
-        self._sql_thread = _SQLThread(sql, db_path)
+        self._sql_thread = _SQLThread(sql, db_path, parent=self)
         self._sql_thread.result_ready.connect(self._on_sql_finished)
         self._sql_thread.start()
 
@@ -1649,6 +1679,8 @@ class NitinEditor(QMainWindow):
 
     def _show_terminal_panel(self) -> None:
         """Show or focus the terminal panel (docked at the bottom)."""
+        if not self.isVisible():
+            self.show()
         if not hasattr(self, "_terminal_dock") or self._terminal_dock is None:
             self._build_terminal_panel()
         # Make visible
@@ -1902,37 +1934,8 @@ class NitinEditor(QMainWindow):
             self._term_append("⚠  Another command is already running.\n\n", "#f9e2af")
             return
 
-        from PySide6.QtCore import QThread, Signal as Sig
-
-        class _TermThread(QThread):
-            stdout_sig = Sig(str)
-            stderr_sig = Sig(str)
-            done_sig = Sig(object)
-
-            def __init__(self, command, os_, timeout_, cwd_):
-                super().__init__()
-                self._cmd = command
-                self._os = os_
-                self._timeout = timeout_
-                self._cwd = cwd_
-                self._runner = CommandRunner()
-
-            def run(self):
-                result = self._runner.run(
-                    command=self._cmd,
-                    target_os=self._os,
-                    timeout=self._timeout,
-                    cwd=self._cwd,
-                    on_stdout=lambda t: self.stdout_sig.emit(t),
-                    on_stderr=lambda t: self.stderr_sig.emit(t),
-                )
-                self.done_sig.emit(result)
-
-            def stop(self):
-                self._runner.stop()
-
         timeout = self._settings.get("terminal_timeout", 30)
-        self._term_thread = _TermThread(cmd, target_os, timeout, str(Path.home()))
+        self._term_thread = _TermThread(cmd, target_os, timeout, str(Path.home()), parent=self)
         self._term_thread.stdout_sig.connect(
             lambda t: self._term_append(t, "#cdd6f4")
         )
@@ -2119,30 +2122,51 @@ class NitinEditor(QMainWindow):
                     unsaved.append(state.title)
 
         if unsaved:
-            names = "\n  • ".join(unsaved)
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                f"Unsaved changes in:\n  • {names}\n\nDiscard and exit?",
-                QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Cancel,
-            )
+            if os.environ.get("QT_QPA_PLATFORM") == "offscreen" or (
+                QApplication.instance() and QApplication.instance().platformName() == "offscreen"
+            ):
+                reply = QMessageBox.StandardButton.Discard
+            else:
+                names = "\n  • ".join(unsaved)
+                reply = QMessageBox.question(
+                    self,
+                    "Unsaved Changes",
+                    f"Unsaved changes in:\n  • {names}\n\nDiscard and exit?",
+                    QMessageBox.StandardButton.Discard
+                    | QMessageBox.StandardButton.Save
+                    | QMessageBox.StandardButton.Cancel,
+                )
             if reply == QMessageBox.StandardButton.Cancel:
                 event.ignore()
                 return
             if reply == QMessageBox.StandardButton.Save:
                 self._save_file()
 
-        # Stop running process
-        if self._runner_thread and self._runner_thread.isRunning():
-            self._runner_thread.stop_execution()
-            self._runner_thread.wait(3000)
+        # Stop running process / thread
+        if self._runner_thread:
+            if self._runner_thread.isRunning():
+                self._runner_thread.stop_execution()
+                self._runner_thread.wait(3000)
+            else:
+                self._runner_thread.wait(500)
 
-        # Stop terminal process if running
-        if hasattr(self, "_term_thread") and self._term_thread.isRunning():
-            self._term_thread.stop()
-            self._term_thread.wait(2000)
+        # Stop SQL thread if exists
+        if hasattr(self, "_sql_thread") and self._sql_thread:
+            if self._sql_thread.isRunning():
+                self._sql_thread.wait(1000)
+            else:
+                self._sql_thread.wait(500)
+
+        # Stop terminal process/thread if exists
+        if hasattr(self, "_term_thread") and self._term_thread:
+            if self._term_thread.isRunning():
+                self._term_thread.stop()
+                self._term_thread.wait(2000)
+            else:
+                self._term_thread.wait(500)
+
+        from PySide6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
 
         # Persist terminal history
         save_history(self._term_history)
