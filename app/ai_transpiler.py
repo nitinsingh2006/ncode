@@ -110,8 +110,15 @@ def _call_groq_api(api_key: str, prompt: str) -> str:
 
     text = result["choices"][0]["message"]["content"].strip()
 
-    # Strip accidental code fences
-    if text.startswith("```"):
+    # Strip reasoning/thinking tags (e.g. from Qwen / DeepSeek)
+    import re
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    # Extract code from markdown fences if present anywhere in the text
+    fence_match = re.search(r"```(?:[a-zA-Z0-9_\+\#\-\.]*)\r?\n(.*?)```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    elif text.startswith("```"):
         lines = text.splitlines()
         inner = lines[1:]
         if inner and inner[-1].strip() == "```":

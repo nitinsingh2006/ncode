@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from app.compiler import (
     LANGUAGES, LANGUAGE_EXTENSIONS, TERMINAL_ENVS, detect_language,
-    get_missing_tools, check_tool,
+    get_missing_tools, check_tool, _install_hint,
 )
 from app.runner import RunnerThread
 from app.diagnostics import Diagnostic, parse_diagnostics, sql_diagnostic
@@ -823,6 +823,13 @@ class NitinEditor(QMainWindow):
         self._preview_btn.setVisible(False)
         tb.addWidget(self._preview_btn)
 
+        self._browser_btn = QPushButton("🌍 Browser")
+        self._browser_btn.setStyleSheet(BTN_PREVIEW_STYLE)
+        self._browser_btn.setToolTip("Open in default system browser (Ctrl+Shift+B)")
+        self._browser_btn.clicked.connect(self._open_in_browser)
+        self._browser_btn.setVisible(False)
+        tb.addWidget(self._browser_btn)
+
         tb.addSeparator()
         tb.addAction(tb_action("⚙", self._show_settings, tip="Preferences"))
 
@@ -1194,6 +1201,8 @@ class NitinEditor(QMainWindow):
         is_web = language in ("HTML", "CSS")
         is_sql = language == "SQL"
         self._preview_btn.setVisible(is_web)
+        if hasattr(self, "_browser_btn"):
+            self._browser_btn.setVisible(is_web)
         self._run_btn.setVisible(True)
         self._run_btn.setText("🌐  PREVIEW" if is_web else "▶  RUN")
         if hasattr(self, "_sql_db_label"):
@@ -1403,7 +1412,7 @@ class NitinEditor(QMainWindow):
             self._term_output.clear()
             self._term_append(
                 f"❌  Missing tools: {', '.join(missing)}\n"
-                f"    Install: sudo apt-get install {' '.join(missing)}\n",
+                f"    {_install_hint(state.language)}\n",
                 "#f38ba8",
             )
             return
@@ -1638,7 +1647,26 @@ class NitinEditor(QMainWindow):
         editor.setFocus()
         editor.ensureCursorVisible()
 
-    # ── Preview ───────────────────────────────────────────────────────────────
+    # ── Preview & Browser ─────────────────────────────────────────────────────
+
+    def _open_in_browser(self) -> None:
+        """Open the current HTML/CSS file directly in the user's default web browser."""
+        state = self._current_state()
+        editor = self._current_editor()
+        if state is None or editor is None:
+            return
+        code = editor.get_text()
+        from app.preview import open_in_default_browser
+        try:
+            path = open_in_default_browser(code, is_css=(state.language == "CSS"))
+            self._set_status("Opened in default browser")
+            self._show_terminal_panel()
+            self._term_append(
+                f"🌍  Opened in system default browser:\n    file://{path}\n\n",
+                "#89b4fa",
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Browser Error", f"Could not open browser:\n{e}")
 
     def _show_preview(self) -> None:
         state = self._current_state()
@@ -1648,32 +1676,29 @@ class NitinEditor(QMainWindow):
 
         code = editor.get_text()
 
-        if PreviewPanel is None or not HAS_WEBENGINE:
-            QMessageBox.information(
-                self,
-                "Preview — No WebEngine",
-                "HTML/CSS preview requires PySide6-WebEngine.\n\n"
-                "Install with:\n"
-                "  pip install PySide6-WebEngine\n\n"
-                "Or your HTML file can be opened directly in a browser.",
-            )
-            return
-
-        # Create / reuse dialog (never re-parent the panel)
-        if self._preview_dialog is None or not self._preview_dialog.isVisible():
+        # Create dialog ONCE — never recreate or reparent the PreviewPanel!
+        if self._preview_dialog is None:
             self._preview_dialog = QDialog(self)
-            self._preview_dialog.setWindowTitle("HTML/CSS Preview — Nitin Editor")
-            self._preview_dialog.resize(900, 640)
+            self._preview_dialog.setWindowTitle("HTML/CSS Live Preview — Nitin Editor")
+            self._preview_dialog.resize(920, 640)
             dlayout = QVBoxLayout(self._preview_dialog)
             dlayout.setContentsMargins(0, 0, 0, 0)
-            if self._preview_panel is None:
-                self._preview_panel = PreviewPanel()
-            dlayout.addWidget(self._preview_panel)
+            try:
+                self._preview_panel = PreviewPanel(self._preview_dialog)
+                dlayout.addWidget(self._preview_panel)
+            except Exception as e:
+                # Fallback to direct default browser if widget creation fails
+                self._open_in_browser()
+                return
 
-        if state.language == "HTML":
-            self._preview_panel.render_html(code)
-        elif state.language == "CSS":
-            self._preview_panel.render_css_only(code)
+        if self._preview_panel is not None:
+            try:
+                if state.language == "HTML":
+                    self._preview_panel.render_html(code)
+                elif state.language == "CSS":
+                    self._preview_panel.render_css_only(code)
+            except Exception:
+                pass
 
         self._preview_dialog.show()
         self._preview_dialog.raise_()
@@ -2411,7 +2436,17 @@ def main() -> None:
     else:
         os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
-    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
+    from PySide6.QtCore import QCoreApplication
+    try:
+        QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+    except Exception:
+        pass
+
+    os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
+    flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    if not flags:
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox --disable-dev-shm-usage"
+
     os.environ.setdefault("XDG_RUNTIME_DIR", xdg_runtime)
 
     app = QApplication(sys.argv)
