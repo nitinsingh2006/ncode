@@ -55,11 +55,63 @@ def get_missing_tools(language: str) -> list[str]:
             missing.append("javac")
         if not check_tool("java"):
             missing.append("java")
-    elif language == "JavaScript":
+    elif language in ("JavaScript", "TypeScript"):
         if not check_tool("node"):
             missing.append("node")
-    # SQL uses Python's built-in sqlite3 — always available with Python 3
-    # Terminal environments are handled by CommandRunner, not compiler
+    elif language == "Rust":
+        if not check_tool("rustc"):
+            missing.append("rustc")
+    elif language == "Go":
+        if not check_tool("go"):
+            missing.append("go")
+    elif language == "Bash":
+        if not check_tool("bash"):
+            missing.append("bash")
+    elif language == "Ruby":
+        if not check_tool("ruby"):
+            missing.append("ruby")
+    elif language == "Perl":
+        if not check_tool("perl"):
+            missing.append("perl")
+    elif language == "PHP":
+        if not check_tool("php"):
+            missing.append("php")
+    elif language == "Kotlin":
+        if not check_tool("kotlinc"):
+            missing.append("kotlinc")
+        if not check_tool("java"):
+            missing.append("java")
+    elif language == "Swift":
+        if not check_tool("swift"):
+            missing.append("swift")
+    elif language == "C#":
+        if not check_tool("dotnet") and not check_tool("mcs"):
+            missing.append("dotnet")
+    elif language == "Lua":
+        if not check_tool("lua") and not check_tool("lua5.4"):
+            missing.append("lua")
+    elif language == "R":
+        if not check_tool("Rscript"):
+            missing.append("Rscript")
+    elif language == "Dart":
+        if not check_tool("dart"):
+            missing.append("dart")
+    elif language == "Scala":
+        if not check_tool("scala"):
+            missing.append("scala")
+    elif language == "Haskell":
+        if not check_tool("runhaskell") and not check_tool("ghc"):
+            missing.append("ghc")
+    elif language == "Julia":
+        if not check_tool("julia"):
+            missing.append("julia")
+    elif language == "Zig":
+        if not check_tool("zig"):
+            missing.append("zig")
+    elif language == "Elixir":
+        if not check_tool("elixir"):
+            missing.append("elixir")
+    # SQL, HTML, CSS, JSON, YAML, Markdown don't require external compilers
     return missing
 
 
@@ -70,6 +122,24 @@ def _install_hint(language: str) -> str:
         "C++": "Install: sudo apt-get install g++",
         "Java": "Install: sudo apt-get install openjdk-21-jdk",
         "JavaScript": "Install: sudo apt-get install nodejs",
+        "TypeScript": "Install: sudo apt-get install nodejs",
+        "Rust": "Install: sudo apt-get install rustc (or curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)",
+        "Go": "Install: sudo apt-get install golang-go",
+        "Bash": "Install: sudo apt-get install bash",
+        "Ruby": "Install: sudo apt-get install ruby",
+        "Perl": "Install: sudo apt-get install perl",
+        "PHP": "Install: sudo apt-get install php-cli",
+        "Kotlin": "Install: sudo apt-get install kotlin openjdk-21-jdk",
+        "Swift": "Install Swift: https://www.swift.org/install/",
+        "C#": "Install: sudo apt-get install dotnet-sdk-8.0",
+        "Lua": "Install: sudo apt-get install lua5.4",
+        "R": "Install: sudo apt-get install r-base",
+        "Dart": "Install: sudo apt-get install dart",
+        "Scala": "Install: sudo apt-get install scala",
+        "Haskell": "Install: sudo apt-get install ghc",
+        "Julia": "Install: sudo apt-get install julia",
+        "Zig": "Install Zig: https://ziglang.org/download/",
+        "Elixir": "Install: sudo apt-get install elixir",
     }
     return hints.get(language, "Please install the required compiler/runtime.")
 
@@ -313,6 +383,136 @@ def _build_commands(
         src = temp_dir / "script.js"
         src.write_text(code, encoding="utf-8")
         run_cmd = ["node", str(src)]
+
+    elif language == "TypeScript":
+        src = temp_dir / "script.ts"
+        src.write_text(code, encoding="utf-8")
+        # Modern Node.js (v22+) runs TypeScript directly
+        run_cmd = ["node", str(src)]
+
+    elif language == "Rust":
+        src = temp_dir / "main.rs"
+        src.write_text(code, encoding="utf-8")
+        out = temp_dir / "main_rs"
+        compile_cmd = ["rustc", str(src), "-o", str(out)]
+        run_cmd = [str(out)]
+
+    elif language == "Go":
+        src = temp_dir / "main.go"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["go", "run", str(src)]
+
+    elif language == "Bash":
+        src = temp_dir / "script.sh"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["bash", str(src)]
+
+    elif language == "Ruby":
+        src = temp_dir / "script.rb"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["ruby", str(src)]
+
+    elif language == "Perl":
+        src = temp_dir / "script.pl"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["perl", str(src)]
+
+    elif language == "PHP":
+        src = temp_dir / "script.php"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["php", str(src)]
+
+    elif language == "Kotlin":
+        src = temp_dir / "main.kt"
+        src.write_text(code, encoding="utf-8")
+        out_jar = temp_dir / "main.jar"
+        compile_cmd = ["kotlinc", str(src), "-include-runtime", "-d", str(out_jar)]
+        run_cmd = ["java", "-jar", str(out_jar)]
+
+    elif language == "Swift":
+        src = temp_dir / "main.swift"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["swift", str(src)]
+
+    elif language == "C#":
+        src = temp_dir / "Program.cs"
+        src.write_text(code, encoding="utf-8")
+        if check_tool("dotnet"):
+            run_cmd = ["dotnet", "run", "--project", str(temp_dir)]
+        else:
+            out_exe = temp_dir / "main.exe"
+            compile_cmd = ["mcs", str(src), f"-out:{out_exe}"]
+            run_cmd = ["mono", str(out_exe)]
+
+    elif language == "Lua":
+        src = temp_dir / "script.lua"
+        src.write_text(code, encoding="utf-8")
+        lua_bin = "lua" if check_tool("lua") else "lua5.4"
+        run_cmd = [lua_bin, str(src)]
+
+    elif language == "R":
+        src = temp_dir / "script.r"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["Rscript", str(src)]
+
+    elif language == "Dart":
+        src = temp_dir / "script.dart"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["dart", "run", str(src)]
+
+    elif language == "Scala":
+        src = temp_dir / "main.scala"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["scala", str(src)]
+
+    elif language == "Haskell":
+        src = temp_dir / "main.hs"
+        src.write_text(code, encoding="utf-8")
+        if check_tool("runhaskell"):
+            run_cmd = ["runhaskell", str(src)]
+        else:
+            out = temp_dir / "main_hs"
+            compile_cmd = ["ghc", str(src), "-o", str(out)]
+            run_cmd = [str(out)]
+
+    elif language == "Julia":
+        src = temp_dir / "script.jl"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["julia", str(src)]
+
+    elif language == "Zig":
+        src = temp_dir / "main.zig"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["zig", "run", str(src)]
+
+    elif language == "Elixir":
+        src = temp_dir / "script.exs"
+        src.write_text(code, encoding="utf-8")
+        run_cmd = ["elixir", str(src)]
+
+    elif language in ("JSON", "YAML", "Markdown"):
+        src = temp_dir / f"doc.{LANGUAGE_EXTENSIONS.get(language, '.txt')}"
+        src.write_text(code, encoding="utf-8")
+        # Validate syntax via python script and print formatted preview
+        py_checker = (
+            "import sys, json\n"
+            "path = sys.argv[1]\n"
+            "lang = sys.argv[2]\n"
+            "with open(path, 'r', encoding='utf-8') as f:\n"
+            "    content = f.read()\n"
+            "if lang == 'JSON':\n"
+            "    try:\n"
+            "        data = json.loads(content)\n"
+            "        print('✓ Valid JSON syntax')\n"
+            "        print(json.dumps(data, indent=2)[:1000])\n"
+            "    except Exception as e:\n"
+            "        print('❌ Invalid JSON:', e, file=sys.stderr)\n"
+            "        sys.exit(1)\n"
+            "else:\n"
+            "    print(f'✓ {lang} Document ({len(content.splitlines())} lines, {len(content)} bytes)')\n"
+            "    print(content[:1000])\n"
+        )
+        run_cmd = ["python3", "-c", py_checker, str(src), language]
 
     return compile_cmd, run_cmd
 

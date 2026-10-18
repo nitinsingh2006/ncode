@@ -8,8 +8,10 @@ from app.ai_transpiler import can_transpile, _build_prompt, _call_groq_api, tran
 def test_can_transpile():
     assert can_transpile("C++", "Python") is True
     assert can_transpile("Python", "JavaScript") is True
-    assert can_transpile("HTML", "Python") is False
-    assert can_transpile("SQL", "C++") is False
+    assert can_transpile("HTML", "Python") is True
+    assert can_transpile("SQL", "C++") is True
+    assert can_transpile("Rust", "Go") is True
+    assert can_transpile("Python", "Python") is False  # same language does not transpile
 
 def test_build_prompt():
     prompt = _build_prompt("cout << 123;", "C++", "Python")

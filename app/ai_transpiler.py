@@ -13,28 +13,54 @@ import json
 from typing import Callable
 
 
+from app.core.languages import LANGUAGES
+
 # ── Groq API settings ────────────────────────────────────────────────────────
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "qwen/qwen3.8-27b"   # available on this account, great for code
 
-# Languages that support transpilation (exclude markup/query langs)
-TRANSPILABLE_LANGUAGES = {"Python", "C", "C++", "Java", "JavaScript"}
+# All registered languages support transpilation
+TRANSPILABLE_LANGUAGES = set(LANGUAGES)
 
 
 # ── Prompt builder ───────────────────────────────────────────────────────────
 
 def _build_prompt(code: str, from_lang: str, to_lang: str) -> str:
+    specific_instruction = ""
+    if to_lang == "HTML":
+        specific_instruction = (
+            "5. Since the target is HTML, generate a complete standalone HTML document "
+            "(with inline CSS and embedded JavaScript if needed) that faithfully demonstrates "
+            "the logic and displays the expected output on screen.\n"
+        )
+    elif to_lang == "CSS":
+        specific_instruction = (
+            "5. Since the target is CSS, extract the visual styles, colors, layout, and "
+            "styling rules and output clean, modern CSS.\n"
+        )
+    elif to_lang == "SQL":
+        specific_instruction = (
+            "5. Since the target is SQL, output valid SQLite SQL statements (such as CREATE TABLE, "
+            "INSERT, and SELECT queries) representing the underlying data structure and operations.\n"
+        )
+    elif to_lang == "Bash":
+        specific_instruction = (
+            "5. Since the target is Bash, output a POSIX/Bash shell script that executes "
+            "the same workflow and prints identical output.\n"
+        )
+
     return (
-        f"You are a precise code transpiler. Convert the following {from_lang} code "
+        f"You are an expert code transpiler. Convert the following {from_lang} code "
         f"to {to_lang}.\n\n"
         "STRICT RULES:\n"
         "1. Preserve the EXACT same logic and output — the program must produce "
         "identical results in the target language.\n"
-        "2. Use idiomatic, clean syntax of the target language.\n"
-        "3. Return ONLY the raw source code — NO explanation, NO markdown, "
-        "NO triple-backtick fences.\n"
-        "4. Adapt comments to the target language's comment style.\n\n"
+        "2. Use idiomatic, modern, clean syntax of the target language.\n"
+        "3. Return ONLY the raw source code — NO explanation, NO conversational filler, "
+        "NO markdown triple-backtick fences (```).\n"
+        "4. Adapt comments to the target language's comment style.\n"
+        f"{specific_instruction}\n"
         f"=== {from_lang} SOURCE ===\n"
         f"{code}\n"
         f"=== END SOURCE ===\n\n"
@@ -98,8 +124,12 @@ def _call_groq_api(api_key: str, prompt: str) -> str:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def can_transpile(from_lang: str, to_lang: str) -> bool:
-    """Return True if both languages are supported for transpilation."""
-    return from_lang in TRANSPILABLE_LANGUAGES and to_lang in TRANSPILABLE_LANGUAGES
+    """Return True if both languages are supported and different."""
+    return (
+        from_lang in TRANSPILABLE_LANGUAGES
+        and to_lang in TRANSPILABLE_LANGUAGES
+        and from_lang != to_lang
+    )
 
 
 def transpile_async(

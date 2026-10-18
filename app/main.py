@@ -1194,8 +1194,12 @@ class NitinEditor(QMainWindow):
         is_web = language in ("HTML", "CSS")
         is_sql = language == "SQL"
         self._preview_btn.setVisible(is_web)
-        # Run button visible for code languages and SQL; hidden for web preview
-        self._run_btn.setVisible(not is_web)
+        self._run_btn.setVisible(True)
+        self._run_btn.setText("🌐  PREVIEW" if is_web else "▶  RUN")
+        if hasattr(self, "_sql_db_label"):
+            self._sql_db_label.setVisible(is_sql)
+        if hasattr(self, "_sql_db_btn"):
+            self._sql_db_btn.setVisible(is_sql)
 
     # ── File operations ───────────────────────────────────────────────────────
 
@@ -1372,7 +1376,13 @@ class NitinEditor(QMainWindow):
 
         # HTML/CSS → preview
         if state.language in ("HTML", "CSS"):
+            code = editor.get_text()
             self._show_preview()
+            self._show_terminal_panel()
+            self._term_output.clear()
+            self._term_append(f"🌐  [{state.language}] Live preview rendered in preview window.\n", "#89b4fa")
+            self._term_append(f"    Lines: {len(code.splitlines())}  ·  Bytes: {len(code)}\n\n", "#a6e3a1")
+            self._set_status(f"Preview: {state.language}")
             return
 
         # SQL → SQLite execution

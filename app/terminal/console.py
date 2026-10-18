@@ -76,8 +76,12 @@ class TerminalConsole(QPlainTextEdit):
         doc = self.document()
         cursor = self.textCursor()
         
+        # Clamp boundary to document length
+        current_len = max(0, doc.characterCount() - 1)
+        if self._output_boundary > current_len:
+            self._output_boundary = current_len
+
         # Extract any uncommitted user input typed after boundary
-        current_len = doc.characterCount() - 1
         draft_input = ""
         if current_len > self._output_boundary:
             cursor.setPosition(self._output_boundary)
@@ -106,10 +110,13 @@ class TerminalConsole(QPlainTextEdit):
         self.setTextCursor(cursor)
         self.ensureCursorVisible()
 
-    def clear_terminal(self) -> None:
-        self.clear()
+    def clear(self) -> None:
+        super().clear()
         self._output_boundary = 0
         self._history_pos = -1
+
+    def clear_terminal(self) -> None:
+        self.clear()
 
     def get_current_input(self) -> str:
         doc = self.document()

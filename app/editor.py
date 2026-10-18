@@ -404,15 +404,298 @@ class JavaHighlighter(QSyntaxHighlighter):
             start_index = m.capturedStart() if m.hasMatch() else -1
 
 
+# ── Additional language highlighters ──────────────────────────────────────────
+
+class GenericRegexHighlighter(QSyntaxHighlighter):
+    """Configurable syntax highlighter for modern languages."""
+    def __init__(
+        self,
+        document: QTextDocument,
+        keywords: list[str],
+        comment_prefix: str = "//",
+        block_comment: tuple[str, str] | None = ("/*", "*/"),
+        extra_rules: list[tuple[str, QTextCharFormat]] | None = None,
+    ) -> None:
+        super().__init__(document)
+        kw_pat = r"\b(" + "|".join(re.escape(k) for k in keywords) + r")\b"
+        self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = [
+            (QRegularExpression(kw_pat), _fmt(C_KEYWORD, bold=True)),
+            (QRegularExpression(re.escape(comment_prefix) + r"[^\n]*"), _fmt(C_COMMENT, italic=True)),
+            (QRegularExpression(r"\b[0-9]+\.?[0-9]*([eE][+-]?[0-9]+)?\b"), _fmt(C_NUMBER)),
+            (QRegularExpression(r"\"[^\"\\]*(\\.[^\"\\]*)*\""), _fmt(C_STRING)),
+            (QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), _fmt(C_STRING)),
+            (QRegularExpression(r"`[^`\\]*(\\.[^`\\]*)*`"), _fmt(C_STRING)),
+            (QRegularExpression(r"\b\w+(?=\s*\()"), _fmt(C_FUNCTION)),
+            (QRegularExpression(r"[=+\-*/<>!&|^~%:]+"), _fmt(C_OPERATOR)),
+        ]
+        if extra_rules:
+            for pat, fmt in extra_rules:
+                self._rules.append((QRegularExpression(pat), fmt))
+        self._block_start = QRegularExpression(re.escape(block_comment[0])) if block_comment else None
+        self._block_end = QRegularExpression(re.escape(block_comment[1])) if block_comment else None
+
+    def highlightBlock(self, text: str) -> None:
+        if self._block_start and self._block_end:
+            self._handle_block_comments(text)
+        for pattern, fmt in self._rules:
+            it = pattern.globalMatch(text)
+            while it.hasNext():
+                m = it.next()
+                self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
+
+    def _handle_block_comments(self, text: str) -> None:
+        fmt = _fmt(C_COMMENT, italic=True)
+        start_index = 0
+        if self.previousBlockState() != 1:
+            m = self._block_start.match(text)
+            start_index = m.capturedStart() if m.hasMatch() else -1
+        while start_index >= 0:
+            end_m = self._block_end.match(text, start_index)
+            if not end_m.hasMatch():
+                self.setCurrentBlockState(1)
+                self.setFormat(start_index, len(text) - start_index, fmt)
+                return
+            end_index = end_m.capturedStart() + 2
+            self.setFormat(start_index, end_index - start_index, fmt)
+            m = self._block_start.match(text, end_index)
+            start_index = m.capturedStart() if m.hasMatch() else -1
+
+
+class TypeScriptHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = JavaScriptHighlighter.KEYWORDS + [
+            "type", "interface", "namespace", "declare", "enum", "implements",
+            "abstract", "as", "any", "unknown", "never", "readonly", "keyof", "is",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class RustHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "fn", "let", "mut", "struct", "enum", "impl", "trait", "pub", "use",
+            "mod", "match", "crate", "self", "super", "where", "async", "await",
+            "loop", "move", "ref", "unsafe", "type", "dyn", "const", "static",
+            "if", "else", "for", "while", "return", "break", "continue", "in",
+            "Option", "Some", "None", "Result", "Ok", "Err", "Vec", "String",
+            "println", "eprintln", "format", "panic", "true", "false",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class GoHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "func", "package", "import", "var", "const", "type", "struct",
+            "interface", "go", "defer", "chan", "select", "range", "make", "new",
+            "nil", "iota", "true", "false", "string", "int", "int64", "bool",
+            "byte", "error", "if", "else", "switch", "case", "default", "for",
+            "return", "break", "continue", "fallthrough", "map",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class BashHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "echo", "if", "then", "else", "elif", "fi", "case", "esac", "for",
+            "select", "while", "until", "do", "done", "in", "function", "time",
+            "local", "export", "return", "exit", "set", "read", "source", "alias",
+        ]
+        super().__init__(doc, kws, "#", None)
+
+
+class RubyHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "def", "end", "class", "module", "if", "else", "elsif", "unless",
+            "case", "when", "while", "until", "for", "in", "do", "begin",
+            "rescue", "ensure", "return", "yield", "super", "self", "nil",
+            "true", "false", "require", "include", "puts", "print", "attr_accessor",
+        ]
+        super().__init__(doc, kws, "#", None)
+
+
+class PHPHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "echo", "print", "function", "fn", "class", "public", "private",
+            "protected", "static", "abstract", "interface", "implements", "extends",
+            "namespace", "use", "return", "if", "else", "elseif", "foreach", "as",
+            "while", "do", "switch", "case", "break", "continue", "try", "catch",
+            "finally", "throw", "new", "null", "true", "false", "isset", "empty",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class KotlinHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = JavaHighlighter.KEYWORDS + [
+            "fun", "val", "var", "when", "is", "in", "object", "companion",
+            "data", "sealed", "open", "override", "suspend", "println",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class SwiftHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "func", "let", "var", "guard", "defer", "init", "deinit", "extension",
+            "protocol", "mutating", "nil", "print", "struct", "class", "enum",
+            "import", "if", "else", "switch", "case", "for", "while", "return",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class CSharpHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = JavaHighlighter.KEYWORDS + [
+            "using", "namespace", "async", "await", "get", "set", "var",
+            "readonly", "override", "Console", "WriteLine", "string", "bool",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class LuaHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "local", "function", "end", "then", "do", "while", "repeat", "until",
+            "if", "else", "elseif", "for", "in", "return", "break", "nil",
+            "true", "false", "and", "or", "not", "print",
+        ]
+        super().__init__(doc, kws, "--", ("--[[", "]]"))
+
+
+class RHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "function", "if", "else", "for", "while", "repeat", "in", "next",
+            "break", "TRUE", "FALSE", "NULL", "NA", "library", "require",
+            "print", "cat", "c", "data.frame",
+        ]
+        super().__init__(doc, kws, "#", None)
+
+
+class DartHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = JavaScriptHighlighter.KEYWORDS + [
+            "void", "main", "final", "const", "late", "required", "Widget",
+            "StatelessWidget", "StatefulWidget", "setState", "Future", "Stream",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class PerlHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "my", "our", "sub", "use", "package", "strict", "warnings",
+            "print", "say", "die", "warn", "if", "unless", "else", "elsif",
+            "while", "for", "foreach", "return", "shift",
+        ]
+        super().__init__(doc, kws, "#", None)
+
+
+class ScalaHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = JavaHighlighter.KEYWORDS + [
+            "def", "val", "var", "object", "trait", "with", "match", "case",
+            "yield", "implicit", "sealed", "lazy",
+        ]
+        super().__init__(doc, kws, "//", ("/*", "*/"))
+
+
+class HaskellHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "module", "where", "import", "data", "type", "newtype", "class",
+            "instance", "deriving", "let", "in", "do", "case", "of", "if",
+            "then", "else", "putStrLn", "print",
+        ]
+        super().__init__(doc, kws, "--", ("{-", "-}"))
+
+
+class JuliaHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "function", "end", "macro", "module", "using", "import", "struct",
+            "mutable", "const", "local", "global", "return", "println", "if",
+            "else", "elseif", "for", "while",
+        ]
+        super().__init__(doc, kws, "#", ("#=", "=#"))
+
+
+class ZigHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "pub", "fn", "const", "var", "try", "catch", "defer", "errdefer",
+            "unreachable", "test", "comptime", "std", "struct", "enum", "union",
+            "if", "else", "while", "for", "return",
+        ]
+        super().__init__(doc, kws, "//", None)
+
+
+class ElixirHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        kws = [
+            "def", "defmodule", "defp", "defmacro", "do", "end", "import",
+            "alias", "use", "require", "case", "cond", "if", "unless", "when",
+            "fn", "IO", "puts",
+        ]
+        super().__init__(doc, kws, "#", None)
+
+
+class JSONHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        super().__init__(doc, ["true", "false", "null"], "//", None)
+
+
+class YAMLHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        super().__init__(doc, ["true", "false", "yes", "no", "null"], "#", None)
+
+
+class MarkdownHighlighter(GenericRegexHighlighter):
+    def __init__(self, doc: QTextDocument) -> None:
+        extras = [
+            (r"^#{1,6}\s+[^\n]*", _fmt(C_KEYWORD, bold=True)),
+            (r"\*\*[^*]+\*\*", _fmt(C_CLASS, bold=True)),
+            (r"\*[^*]+\*", _fmt(C_FUNCTION, italic=True)),
+            (r"`[^`]+`", _fmt(C_STRING)),
+            (r"\[[^\]]+\]\([^\)]+\)", _fmt(C_OPERATOR)),
+        ]
+        super().__init__(doc, [], "#", None, extra_rules=extras)
+
+
 HIGHLIGHTER_MAP: dict[str, type] = {
     "Python": PythonHighlighter,
     "C": CppHighlighter,
     "C++": CppHighlighter,
     "Java": JavaHighlighter,
     "JavaScript": JavaScriptHighlighter,
+    "TypeScript": TypeScriptHighlighter,
+    "Rust": RustHighlighter,
+    "Go": GoHighlighter,
+    "Kotlin": KotlinHighlighter,
+    "Swift": SwiftHighlighter,
+    "PHP": PHPHighlighter,
+    "Ruby": RubyHighlighter,
+    "C#": CSharpHighlighter,
+    "Bash": BashHighlighter,
+    "R": RHighlighter,
+    "Dart": DartHighlighter,
+    "Lua": LuaHighlighter,
+    "Perl": PerlHighlighter,
+    "Scala": ScalaHighlighter,
+    "Haskell": HaskellHighlighter,
+    "Julia": JuliaHighlighter,
+    "Zig": ZigHighlighter,
+    "Elixir": ElixirHighlighter,
     "HTML": HTMLHighlighter,
     "CSS": CSSHighlighter,
     "SQL": SQLHighlighter,
+    "JSON": JSONHighlighter,
+    "YAML": YAMLHighlighter,
+    "Markdown": MarkdownHighlighter,
 }
 
 
