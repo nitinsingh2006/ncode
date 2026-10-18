@@ -52,6 +52,9 @@ from app.terminal.history import load_history, save_history, add_command as hist
 from app.terminal.command_reference import get_reference_text, lookup_equivalents
 from app.terminal.console import TerminalConsole
 
+# AI Transpiler
+from app.ai_transpiler import transpile_async, can_transpile
+
 # Optional: preview
 try:
     from app.preview import PreviewPanel, HAS_WEBENGINE
@@ -574,6 +577,10 @@ class NitinEditor(QMainWindow):
         self._term_history_pos: int = -1    # position in history browsing
         self._term_running: bool = False
         self._sql_db_path: Path | None = None  # None = temporary
+
+        # AI Transpiler state
+        self._prev_language: str = "Python"   # language before the switch
+        self._transpile_in_progress: bool = False  # guard against re-entrancy
 
         self._setup_window()
         self._build_ui()
@@ -1099,6 +1106,7 @@ class NitinEditor(QMainWindow):
             self._lang_combo.blockSignals(False)
             self._update_language_ui(state.language)
             self._update_status_bar()
+            self._prev_language = state.language  # sync so next switch knows the starting lang
 
     def _on_editor_modified(self, cid: int) -> None:
         state = self._tab_states.get(cid)
@@ -1114,6 +1122,9 @@ class NitinEditor(QMainWindow):
     # ── Language management ───────────────────────────────────────────────────
 
     def _on_language_changed(self, language: str) -> None:
+        from_lang = self._prev_language  # language BEFORE the switch
+        self._prev_language = language   # update for next switch
+
         state = self._current_state()
         if state:
             state.language = language
@@ -1122,6 +1133,62 @@ class NitinEditor(QMainWindow):
             editor.set_language(language)
         self._update_language_ui(language)
         self._update_status_bar()
+
+        # ── AI Transpilation ──────────────────────────────────────────────────
+        api_key: str = (
+            self._settings.get("groq_api_key", "").strip()
+            or self._settings.get("gemini_api_key", "").strip()
+        )
+        if (
+            api_key
+            and editor is not None
+            and not self._transpile_in_progress
+            and can_transpile(from_lang, language)
+        ):
+            code = editor.toPlainText().strip()
+            if code:
+                self._start_transpilation(editor, code, from_lang, language, api_key)
+
+    def _start_transpilation(self, editor, code: str, from_lang: str, to_lang: str, api_key: str) -> None:
+        """Kick off a background transpilation and wire up result callbacks."""
+        from PySide6.QtCore import QObject, Signal as _Signal
+
+        class _Bridge(QObject):
+            """Tiny signal bridge — lives on the main thread, receives from worker."""
+            success = _Signal(str)
+            error   = _Signal(str)
+
+        bridge = _Bridge(self)  # parent=self → stays alive while self does
+        bridge.success.connect(lambda converted: self._apply_transpiled_code(converted, editor))
+        bridge.error.connect(self._transpile_error)
+
+        self._transpile_in_progress = True
+        self._set_status(f"⚡ Translating {from_lang} → {to_lang}…")
+
+        transpile_async(
+            code, from_lang, to_lang, api_key,
+            on_success=bridge.success.emit,
+            on_error=bridge.error.emit,
+        )
+
+    def _apply_transpiled_code(self, converted: str, editor) -> None:
+        """Called on the main thread after successful transpilation."""
+        self._transpile_in_progress = False
+        try:
+            if editor is None:
+                return
+            cursor = editor.textCursor()
+            cursor.select(cursor.SelectionType.Document)
+            cursor.insertText(converted)
+            editor.setTextCursor(cursor)
+            self._set_status("✅ Code translated successfully")
+        except Exception:  # noqa: BLE001
+            self._set_status("⚠ Could not apply translated code")
+
+    def _transpile_error(self, msg: str) -> None:
+        """Called on the main thread after a transpilation failure."""
+        self._transpile_in_progress = False
+        self._set_status(f"⚠ Transpile error: {msg[:80]}")
 
     def _update_language_ui(self, language: str) -> None:
         is_web = language in ("HTML", "CSS")

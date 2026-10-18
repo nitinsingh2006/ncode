@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QGroupBox, QFormLayout, QScrollArea, QWidget,
+    QPushButton, QGroupBox, QFormLayout, QScrollArea, QWidget, QLineEdit,
 )
 
 
@@ -208,6 +208,33 @@ class SettingsDialog(QDialog):
         term_form.addRow("Confirm dangerous commands:", self._term_confirm_combo)
         layout.addWidget(term_group)
 
+        # ── AI Transpiler ────────────────────────────────────────────────────
+        ai_group = QGroupBox("AI Transpiler (Groq)")
+        ai_form = QFormLayout(ai_group)
+        ai_form.setSpacing(10)
+
+        self._groq_key_input = QLineEdit()
+        self._groq_key_input.setPlaceholderText("Paste your Groq API key (gsk_...) here…")
+        self._groq_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        current_key = self._settings.get("groq_api_key") or self._settings.get("gemini_api_key", "")
+        self._groq_key_input.setText(current_key)
+        self._groq_key_input.setStyleSheet(
+            "background: #313244; color: #cdd6f4; border: 1px solid #45475a;"
+            " border-radius: 4px; padding: 4px 8px; min-width: 260px;"
+        )
+        ai_form.addRow("Groq API Key:", self._groq_key_input)
+
+        hint = QLabel(
+            "<small>Free & ultra-fast! Get a key at "
+            "<a href='https://console.groq.com/keys' style='color:#89b4fa;'>"
+            "console.groq.com/keys</a>. "
+            "Leave blank to disable auto-transpilation.</small>"
+        )
+        hint.setOpenExternalLinks(True)
+        hint.setWordWrap(True)
+        ai_form.addRow("", hint)
+        layout.addWidget(ai_group)
+
         layout.addStretch()
         scroll.setWidget(container)
         outer.addWidget(scroll)
@@ -250,6 +277,10 @@ class SettingsDialog(QDialog):
         self._settings["terminal_timeout"] = int(self._term_timeout_combo.currentText())
         self._settings["terminal_history_size"] = int(self._term_history_combo.currentText())
         self._settings["terminal_confirm_dangerous"] = self._term_confirm_combo.currentText() == "Yes"
+        # AI Transpiler
+        val = self._groq_key_input.text().strip()
+        self._settings["groq_api_key"] = val
+        self._settings["gemini_api_key"] = val
         self.settings_changed.emit(self._settings)
         self.accept()
 

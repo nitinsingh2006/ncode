@@ -35,6 +35,9 @@ DEFAULTS: dict[str, Any] = {
     "mobile_touch_controls": True,
     "mobile_keyboard_behavior": "resize",
     "mobile_landscape_editor_mode": True,
+    # AI Transpiler
+    "groq_api_key": "",
+    "gemini_api_key": "",
 }
 
 
