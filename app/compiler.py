@@ -20,50 +20,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from app.core.languages import EXTENSION_MAP, LANGUAGES, LANGUAGE_EXTENSIONS, detect_language
+
 # ── Language definitions ────────────────────────────────────────────────────
-
-EXTENSION_MAP: dict[str, str] = {
-    ".py": "Python",
-    ".c": "C",
-    ".cpp": "C++",
-    ".cc": "C++",
-    ".cxx": "C++",
-    ".java": "Java",
-    ".js": "JavaScript",
-    ".html": "HTML",
-    ".htm": "HTML",
-    ".css": "CSS",
-    ".sql": "SQL",
-    ".db": "SQL",
-    ".sqlite": "SQL",
-    ".sqlite3": "SQL",
-}
-
-# Programming language choices in the UI selector
-LANGUAGES: list[str] = ["Python", "C", "C++", "Java", "JavaScript", "HTML", "CSS", "SQL"]
 
 # Terminal/command environment entries (separate from programming languages)
 TERMINAL_ENVS: list[str] = ["Linux Terminal", "macOS Terminal", "Windows Terminal"]
 
-LANGUAGE_EXTENSIONS: dict[str, str] = {
-    "Python": ".py",
-    "C": ".c",
-    "C++": ".cpp",
-    "Java": ".java",
-    "JavaScript": ".js",
-    "HTML": ".html",
-    "CSS": ".css",
-    "SQL": ".sql",
-}
-
 # Max bytes captured from stdout/stderr to prevent memory exhaustion
 MAX_OUTPUT_BYTES = 1 * 1024 * 1024  # 1 MB
-
-
-def detect_language(file_path: str | Path) -> Optional[str]:
-    """Detect language from file extension."""
-    ext = Path(file_path).suffix.lower()
-    return EXTENSION_MAP.get(ext)
 
 
 # ── Dependency checking ─────────────────────────────────────────────────────
@@ -121,6 +86,7 @@ class RunResult:
     cancelled: bool = False
     error_message: str = ""
     is_compile_error: bool = False
+    compiler_output: str = ""
 
 
 # ── Runner ──────────────────────────────────────────────────────────────────
@@ -135,6 +101,7 @@ class CodeRunner:
         self._process: Optional[subprocess.Popen] = None
         self._temp_dir: Optional[Path] = None
         self._stopped: bool = False
+        self._stdin_ready: bool = False
         self._lock = threading.Lock()
 
     def stop(self) -> None:
@@ -157,7 +124,7 @@ class CodeRunner:
         """Write string data into live stdin pipe of running process."""
         with self._lock:
             proc = self._process
-            if proc and proc.stdin and not proc.stdin.closed and proc.poll() is None:
+            if self._stdin_ready and proc and proc.stdin and not proc.stdin.closed and proc.poll() is None:
                 try:
                     proc.stdin.write(data.encode("utf-8"))
                     proc.stdin.flush()
@@ -170,11 +137,35 @@ class CodeRunner:
         """Send EOF to live stdin pipe."""
         with self._lock:
             proc = self._process
-            if proc and proc.stdin and not proc.stdin.closed:
+            if self._stdin_ready and proc and proc.stdin and not proc.stdin.closed:
                 try:
                     proc.stdin.close()
                 except (BrokenPipeError, OSError):
                     pass
+
+    def is_waiting_for_stdin(self) -> bool:
+        """
+        Return True if the running process is blocked waiting for stdin input.
+        Thread-safe method.
+        """
+        with self._lock:
+            proc = self._process
+            if not proc or proc.poll() is not None:
+                return False
+            pid = proc.pid
+
+        try:
+            wchan_path = Path(f"/proc/{pid}/wchan")
+            if wchan_path.exists():
+                wchan = wchan_path.read_text(encoding="utf-8", errors="ignore").strip()
+                # Match stdin read syscalls (e.g. anon_pipe_read, n_tty_read, sys_read, read_chan)
+                if any(term in wchan for term in ("read", "pipe", "tty")):
+                    if not any(ex in wchan for ex in ("sleep", "futex", "poll")):
+                        return True
+                return False
+        except Exception:
+            pass
+        return False
 
     def _make_temp_dir(self) -> Path:
         """Create an isolated temp directory for this run."""
@@ -230,6 +221,7 @@ class CodeRunner:
                     timeout=max(timeout, 30),
                     cwd=temp_dir,
                     process_ref=self,
+                    allow_stdin=False,
                 )
                 if self._stopped:
                     result.cancelled = True
@@ -241,6 +233,14 @@ class CodeRunner:
                     result.elapsed_time = compile_result.elapsed_time
                     result.is_compile_error = True
                     return result
+                # Warnings are valuable diagnostics even when compilation
+                # succeeds.  Stream them immediately and retain them for the
+                # Problems panel after the program exits.
+                compiler_output = compile_result.stderr
+                if compiler_output and on_stderr:
+                    on_stderr(compiler_output)
+            else:
+                compiler_output = ""
 
             if not run_cmd:
                 result.error_message = "Internal error: no run command built."
@@ -251,9 +251,6 @@ class CodeRunner:
                 result.cancelled = True
                 return result
 
-            if on_status:
-                on_status("Running…")
-
             exec_result = _run_subprocess(
                 run_cmd,
                 stdin_data=stdin_data,
@@ -263,8 +260,10 @@ class CodeRunner:
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
                 on_status=on_status,
+                allow_stdin=True,
             )
             result = exec_result
+            result.compiler_output = compiler_output
             if self._stopped and not result.timed_out:
                 result.cancelled = True
 
@@ -338,6 +337,7 @@ def _run_subprocess(
     on_stdout: Optional[Callable[[str], None]] = None,
     on_stderr: Optional[Callable[[str], None]] = None,
     on_status: Optional[Callable[[str], None]] = None,
+    allow_stdin: bool = False,
 ) -> RunResult:
     """
     Run command as subprocess with live streaming of stdout/stderr and open stdin.
@@ -365,6 +365,10 @@ def _run_subprocess(
         if process_ref is not None:
             with process_ref._lock:
                 process_ref._process = proc
+                process_ref._stdin_ready = allow_stdin
+
+        if allow_stdin and on_status:
+            on_status("Running…")
 
         # Write preloaded stdin data if present without closing stdin
         if stdin_data and proc.stdin:
@@ -403,7 +407,10 @@ def _run_subprocess(
         t_out.start()
         t_err.start()
 
-        # Monitoring loop
+        # Monitoring loop with interactive-aware timeout
+        active_compute_duration: float = 0.0
+        last_tick = time.monotonic()
+
         while True:
             poll_ret = proc.poll()
             if poll_ret is not None:
@@ -412,18 +419,44 @@ def _run_subprocess(
             if process_ref and process_ref._stopped:
                 try:
                     proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
                 except Exception:
                     pass
                 break
 
-            elapsed = time.monotonic() - start_time
-            if elapsed > timeout:
-                result.timed_out = True
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                break
+            now = time.monotonic()
+            dt = now - last_tick
+            last_tick = now
+
+            if allow_stdin and process_ref:
+                is_waiting = process_ref.is_waiting_for_stdin()
+                if is_waiting:
+                    # Reset active computation timer while waiting for user input
+                    active_compute_duration = 0.0
+                else:
+                    active_compute_duration += dt
+                    if active_compute_duration > timeout:
+                        result.timed_out = True
+                        try:
+                            proc.kill()
+                            proc.wait()
+                        except Exception:
+                            pass
+                        break
+            else:
+                active_compute_duration += dt
+                if active_compute_duration > timeout:
+                    result.timed_out = True
+                    try:
+                        proc.kill()
+                        proc.wait()
+                    except Exception:
+                        pass
+                    break
 
             time.sleep(0.05)
 
@@ -454,6 +487,7 @@ def _run_subprocess(
         if process_ref is not None:
             with process_ref._lock:
                 process_ref._process = None
+                process_ref._stdin_ready = False
 
     result.elapsed_time = time.monotonic() - start_time
     return result

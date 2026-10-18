@@ -12,14 +12,15 @@ Security design:
 from __future__ import annotations
 
 import os
-import platform
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+
+from app.core.platform import HostPlatform, detect_host_platform
+from app.platform.terminal_backend import DesktopTerminalBackend, select_terminal_backend
 
 
 @dataclass
@@ -35,24 +36,20 @@ class CommandResult:
 
 
 # Detect the actual host OS once at import time
-_HOST_OS = platform.system()  # "Linux", "Darwin", "Windows"
+# Retain the external system-name value used by callers/tests without importing
+# ``platform``: script-style startup places ``app/`` on sys.path, where its
+# ``platform`` package could shadow the standard-library module.
+_HOST_OS = detect_host_platform().value
 
 
 def get_host_os_name() -> str:
     """Return a human-readable host OS string."""
-    if _HOST_OS == "Linux":
-        return "Linux"
-    elif _HOST_OS == "Darwin":
-        return "macOS"
-    elif _HOST_OS == "Windows":
-        return "Windows"
-    return _HOST_OS
+    return detect_host_platform(_HOST_OS).value
 
 
 def is_target_os_available(target_os: str) -> bool:
     """Return True if the target OS matches the actual host OS."""
-    mapping = {"Linux": "Linux", "macOS": "Darwin", "Windows": "Windows"}
-    return _HOST_OS == mapping.get(target_os, "")
+    return get_host_os_name() == target_os
 
 
 def unavailable_os_message(target_os: str) -> str:
@@ -132,7 +129,7 @@ class CommandRunner:
             result.exit_code = 0
             return result
 
-        # ── Execute via /bin/bash ───────────────────────────────────────────
+        # ── Execute on the actual matching host OS ───────────────────────────
         # shell=True is used intentionally here to support pipelines (|),
         # redirects (>, >>), compound commands (&&, ||, ;), and other shell
         # features that are natural and expected in a terminal emulator.
@@ -145,15 +142,24 @@ class CommandRunner:
         stderr_chunks: list[str] = []
 
         try:
+            backend = select_terminal_backend(_HOST_OS)
+            if not isinstance(backend, DesktopTerminalBackend):
+                result.error_message = "Android Terminal does not provide an unrestricted host shell."
+                result.exit_code = -1
+                return result
+            popen_args: dict = {
+                "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+                "cwd": cwd or str(Path.home()), "env": env, "bufsize": 0,
+            }
+            # cmd.exe is the real Windows shell; POSIX hosts use their actual
+            # local shell (zsh on macOS, bash on Linux).  This branch is never
+            # reached for a selected OS that differs from the host.
+            if backend.platform == HostPlatform.WINDOWS:
+                popen_args.update({"args": [backend.shell, "/d", "/s", "/c", cmd_stripped], "shell": False})
+            else:
+                popen_args.update({"args": cmd_stripped, "shell": True, "executable": backend.shell})
             proc = subprocess.Popen(
-                cmd_stripped,
-                shell=True,
-                executable="/bin/bash",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=cwd or str(Path.home()),
-                env=env,
-                bufsize=0,
+                **popen_args,
             )
             with self._lock:
                 self._process = proc

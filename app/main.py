@@ -5,8 +5,7 @@ Main application window and entry point.
 Architecture:
   NitinEditor (QMainWindow)
     ├── QTabWidget  (editor tabs, each holding a CodeEditor)
-    ├── Input Panel  (QPlainTextEdit — stdin for the running program)
-    └── Output Panel (QPlainTextEdit — stdout/stderr display)
+    └── Integrated bottom panel (Problems, Output, Terminal)
   RunnerThread (QThread) — background execution, signals back to UI
   CodeRunner — subprocess management with stdin/timeout/stop support
 """
@@ -29,7 +28,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QSplitter, QTabWidget, QPlainTextEdit, QTextEdit, QLabel,
+    QSplitter, QTabWidget, QPlainTextEdit, QTextEdit, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QComboBox, QFileDialog, QMessageBox, QStatusBar,
     QToolBar, QMenu, QFrame, QDialog, QLineEdit, QCheckBox,
 )
@@ -39,6 +38,7 @@ from app.compiler import (
     get_missing_tools, check_tool,
 )
 from app.runner import RunnerThread
+from app.diagnostics import Diagnostic, parse_diagnostics, sql_diagnostic
 from app.settings import load_settings, save_settings, load_recent_files, add_recent_file
 from app.ui.settings_dialog import SettingsDialog
 
@@ -50,6 +50,7 @@ from app.terminal.command_runner import CommandRunner, CommandResult, get_host_o
 from app.terminal.safety import check_command, warning_message
 from app.terminal.history import load_history, save_history, add_command as history_add
 from app.terminal.command_reference import get_reference_text, lookup_equivalents
+from app.terminal.console import TerminalConsole
 
 # Optional: preview
 try:
@@ -523,9 +524,39 @@ class FindReplaceDialog(QDialog):
             self._status_label.setText(f'Not found: "{query}"')
 
 
+
+class _TermInputCompat:
+    """Backward compatibility wrapper for self._term_input used by tests/helpers."""
+
+    def __init__(self, console: TerminalConsole):
+        self._console = console
+
+    def text(self) -> str:
+        return self._console.get_current_input()
+
+    def clear(self) -> None:
+        self._console.set_input_text("")
+
+    def setText(self, val: str) -> None:
+        self._console.set_input_text(val)
+
+    def setPlaceholderText(self, text: str) -> None:
+        pass
+
+    def setFocus(self) -> None:
+        self._console.setFocus()
+
+    def selectAll(self) -> None:
+        pass
+
+    def installEventFilter(self, obj) -> None:
+        pass
+
+
 # ── Main Window ───────────────────────────────────────────────────────────────
 
 class NitinEditor(QMainWindow):
+
 
     def __init__(self, initial_file: Path | None = None) -> None:
         super().__init__()
@@ -548,6 +579,11 @@ class NitinEditor(QMainWindow):
         self._build_ui()
         self._apply_settings()
         self._new_tab()   # Start with one empty tab
+
+        # Global event filter for universal shortcuts (Zoom In/Out/Reset)
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
 
         if initial_file and initial_file.exists():
             self._open_file_path(initial_file)
@@ -662,9 +698,17 @@ class NitinEditor(QMainWindow):
 
         # View
         view_menu = mb.addMenu("&View")
-        self._add_menu_action(view_menu, "Zoom &In",         self._zoom_in,          "Ctrl+=")
-        self._add_menu_action(view_menu, "Zoom &Out",        self._zoom_out,         "Ctrl+-")
-        self._add_menu_action(view_menu, "Reset &Zoom",      self._zoom_reset,       "Ctrl+0")
+        self._action_zoom_in = self._add_menu_action(
+            view_menu, "Zoom &In", self._zoom_in,
+            [QKeySequence.StandardKey.ZoomIn, "Ctrl+=", "Ctrl++", "Ctrl+Shift+="]
+        )
+        self._action_zoom_out = self._add_menu_action(
+            view_menu, "Zoom &Out", self._zoom_out,
+            [QKeySequence.StandardKey.ZoomOut, "Ctrl+-", "Ctrl+_", "Ctrl+Shift+-"]
+        )
+        self._action_zoom_reset = self._add_menu_action(
+            view_menu, "Reset &Zoom", self._zoom_reset, "Ctrl+0"
+        )
 
         # Run
         run_menu = mb.addMenu("&Run")
@@ -702,11 +746,18 @@ class NitinEditor(QMainWindow):
         menu: QMenu,
         text: str,
         slot,
-        shortcut: str | None = None,
+        shortcut: str | list[str | QKeySequence] | QKeySequence | None = None,
     ) -> QAction:
         action = QAction(text, self)
         if shortcut:
-            action.setShortcut(QKeySequence(shortcut))
+            if isinstance(shortcut, list):
+                seqs = [QKeySequence(s) if isinstance(s, str) else s for s in shortcut]
+                action.setShortcuts(seqs)
+            elif isinstance(shortcut, str):
+                action.setShortcut(QKeySequence(shortcut))
+            else:
+                action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         action.triggered.connect(slot)
         menu.addAction(action)
         return action
@@ -784,127 +835,32 @@ class NitinEditor(QMainWindow):
         self._v_splitter = QSplitter(Qt.Orientation.Vertical)
         self._v_splitter.addWidget(self._tab_widget)
 
-        bottom = QWidget()
-        bottom.setStyleSheet("background:#181825;")
-        bottom_layout = QHBoxLayout(bottom)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(0)
-
-        self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._h_splitter.addWidget(self._make_input_panel())
-        self._h_splitter.addWidget(self._make_output_panel())
-        self._h_splitter.setSizes([260, 740])
-
-        bottom_layout.addWidget(self._h_splitter)
-        self._v_splitter.addWidget(bottom)
+        self._bottom_tabs = QTabWidget()
+        self._bottom_tabs.setDocumentMode(True)
+        self._problems_panel = self._make_problems_panel()
+        self._output_panel = self._make_output_panel()
+        self._terminal_panel_widget = self._make_integrated_terminal_panel()
+        self._bottom_tabs.addTab(self._problems_panel, "PROBLEMS  0")
+        self._bottom_tabs.addTab(self._output_panel, "OUTPUT")
+        self._bottom_tabs.addTab(self._terminal_panel_widget, "TERMINAL")
+        self._v_splitter.addWidget(self._bottom_tabs)
         self._v_splitter.setSizes([520, 200])
 
         root.addWidget(self._v_splitter)
 
-    def _make_input_panel(self) -> QWidget:
+    def _make_problems_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Header with Clear and EOF buttons
-        hdr = QWidget()
-        hdr.setFixedHeight(32)
-        hdr.setStyleSheet("background:#1a1a2e; border-bottom: 1px solid #313244;")
-        hbox = QHBoxLayout(hdr)
-        hbox.setContentsMargins(10, 0, 6, 0)
-        title = QLabel("⌨  CONSOLE / STDIN")
-        title.setStyleSheet("color:#89b4fa; font-size:12px; font-weight:bold;")
-        hbox.addWidget(title)
-        hbox.addStretch()
-
-        eof_btn = QPushButton("EOF (Ctrl+D)")
-        eof_btn.setStyleSheet(
-            "QPushButton{background:transparent;color:#f9e2af;border:none;"
-            "font-size:11px;padding:2px 8px;}"
-            "QPushButton:hover{color:#ffffff;}"
+        layout.setContentsMargins(6, 4, 6, 4)
+        self._problems_list = QListWidget()
+        self._problems_list.setStyleSheet(
+            "QListWidget{background:#11111b;color:#cdd6f4;border:none;font-family:monospace;}"
+            "QListWidget::item{padding:6px;border-bottom:1px solid #313244;}"
+            "QListWidget::item:selected{background:#313244;}"
         )
-        eof_btn.clicked.connect(self._send_eof)
-        hbox.addWidget(eof_btn)
-
-        clear_in_btn = QPushButton("Clear")
-        clear_in_btn.setStyleSheet(
-            "QPushButton{background:transparent;color:#6c7086;border:none;"
-            "font-size:11px;padding:2px 8px;}"
-            "QPushButton:hover{color:#cdd6f4;}"
-        )
-        clear_in_btn.clicked.connect(lambda: (self._input_area.clear(), self._live_input.clear()))
-        hbox.addWidget(clear_in_btn)
-        layout.addWidget(hdr)
-
-        self._input_area = QPlainTextEdit()
-        self._input_area.setPlaceholderText(
-            "Console history & preloaded input (stdin)…\n\n"
-            "Preload input here before clicking RUN,\n"
-            "or type live input in the line below while running."
-        )
-        self._input_area.setStyleSheet(f"""
-            QPlainTextEdit {{
-                background-color: {INPUT_BG};
-                color: #cdd6f4;
-                border: none;
-                padding: 8px;
-                font-family: "JetBrains Mono","Fira Code","Consolas","Courier New",monospace;
-                font-size: 12px;
-            }}
-        """)
-        layout.addWidget(self._input_area)
-
-        # Bottom row for live interactive stdin entry
-        bottom_row = QWidget()
-        bottom_row.setStyleSheet("background:#181825; border-top: 1px solid #313244;")
-        row_layout = QHBoxLayout(bottom_row)
-        row_layout.setContentsMargins(6, 4, 6, 4)
-        row_layout.setSpacing(6)
-
-        prompt_lbl = QLabel(">")
-        prompt_lbl.setStyleSheet("color:#a6e3a1; font-weight:bold; font-size:13px;")
-        row_layout.addWidget(prompt_lbl)
-
-        self._live_input = QLineEdit()
-        self._live_input.setPlaceholderText("Type input and press Enter…")
-        self._live_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #1e1e2e;
-                color: #a6e3a1;
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-family: "JetBrains Mono","Fira Code","Consolas","Courier New",monospace;
-                font-size: 12px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #89b4fa;
-            }
-        """)
-        self._live_input.returnPressed.connect(self._send_live_input)
-        row_layout.addWidget(self._live_input)
-
-        self._send_btn = QPushButton("Send ↵")
-        self._send_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: none;
-                border-radius: 4px;
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45475a;
-                color: #ffffff;
-            }
-        """)
-        self._send_btn.clicked.connect(self._send_live_input)
-        row_layout.addWidget(self._send_btn)
-
-        layout.addWidget(bottom_row)
+        self._problems_list.itemActivated.connect(self._go_to_diagnostic)
+        self._problems_list.itemClicked.connect(self._go_to_diagnostic)
+        layout.addWidget(self._problems_list)
         return panel
 
     def _make_output_panel(self) -> QWidget:
@@ -949,13 +905,6 @@ class NitinEditor(QMainWindow):
         self._output_area.document().setMaximumBlockCount(5000)
         layout.addWidget(self._output_area)
 
-        # Status bar at bottom of output panel
-        self._exec_status = QLabel("")
-        self._exec_status.setStyleSheet(
-            "background:#181825; color:#7f849c; font-size:11px;"
-            " padding: 3px 10px; border-top: 1px solid #313244;"
-        )
-        layout.addWidget(self._exec_status)
         return panel
 
     def _build_status_bar(self) -> None:
@@ -1029,6 +978,12 @@ class NitinEditor(QMainWindow):
         # Connect editor signals AFTER setting initial text
         if hasattr(editor, "run_requested"):
             editor.run_requested.connect(self._run_code)
+        if hasattr(editor, "zoom_in_requested"):
+            editor.zoom_in_requested.connect(self._zoom_in)
+        if hasattr(editor, "zoom_out_requested"):
+            editor.zoom_out_requested.connect(self._zoom_out)
+        if hasattr(editor, "zoom_reset_requested"):
+            editor.zoom_reset_requested.connect(self._zoom_reset)
         editor.textChanged.connect(
             lambda: self._on_editor_modified(id(container))
         )
@@ -1042,6 +997,14 @@ class NitinEditor(QMainWindow):
         # Set language for syntax highlighting
         if hasattr(editor, "set_language"):
             editor.set_language(lang)
+
+        # Apply current settings to editor
+        if hasattr(editor, "set_font_size"):
+            editor.set_font_size(self._settings.get("font_size", 14))
+        if hasattr(editor, "set_tab_size"):
+            editor.set_tab_size(self._settings.get("tab_size", 4))
+        if hasattr(editor, "set_word_wrap"):
+            editor.set_word_wrap(self._settings.get("word_wrap", False))
 
         cid = id(container)
         self._tab_states[cid] = state
@@ -1061,7 +1024,13 @@ class NitinEditor(QMainWindow):
         ed.get_text = ed.toPlainText          # type: ignore[attr-defined]
         ed.set_text = ed.setPlainText         # type: ignore[attr-defined]
         ed.set_language = lambda _: None      # type: ignore[attr-defined]
-        ed.set_font_size = lambda s: ed.setFont(QFont("monospace", s))  # type: ignore[attr-defined]
+        ed.set_font_size = lambda s: (
+            ed.setStyleSheet(
+                f"background:#1e1e2e; color:#cdd6f4; border:none;"
+                f" font-family:monospace; font-size:{s}pt;"
+            ),
+            ed.setFont(QFont("monospace", s))
+        )  # type: ignore[attr-defined]
         ed.set_tab_size = lambda _: None      # type: ignore[attr-defined]
         ed.set_word_wrap = lambda _: None     # type: ignore[attr-defined]
         return ed
@@ -1307,16 +1276,22 @@ class NitinEditor(QMainWindow):
     # ── Zoom ─────────────────────────────────────────────────────────────────
 
     def _zoom_in(self) -> None:
-        self._settings["font_size"] = min(self._settings.get("font_size", 14) + 1, 40)
+        self._settings["font_size"] = min(self._settings.get("font_size", 14) + 2, 40)
+        save_settings(self._settings)
         self._apply_settings()
+        self.statusBar().showMessage(f"🔍 Zoom: {self._settings['font_size']}pt", 1500)
 
     def _zoom_out(self) -> None:
-        self._settings["font_size"] = max(self._settings.get("font_size", 14) - 1, 6)
+        self._settings["font_size"] = max(self._settings.get("font_size", 14) - 2, 8)
+        save_settings(self._settings)
         self._apply_settings()
+        self.statusBar().showMessage(f"🔍 Zoom: {self._settings['font_size']}pt", 1500)
 
     def _zoom_reset(self) -> None:
         self._settings["font_size"] = 14
+        save_settings(self._settings)
         self._apply_settings()
+        self.statusBar().showMessage("🔍 Zoom Reset: 14pt", 1500)
 
     # ── Run / Stop ────────────────────────────────────────────────────────────
 
@@ -1347,8 +1322,9 @@ class NitinEditor(QMainWindow):
         # Check tools first
         missing = get_missing_tools(state.language)
         if missing:
-            self._clear_output()
-            self._append_output(
+            self._show_terminal_panel()
+            self._term_output.clear()
+            self._term_append(
                 f"❌  Missing tools: {', '.join(missing)}\n"
                 f"    Install: sudo apt-get install {' '.join(missing)}\n",
                 "#f38ba8",
@@ -1357,19 +1333,23 @@ class NitinEditor(QMainWindow):
 
         # Already running?
         if self._runner_thread and self._runner_thread.isRunning():
-            return
+            self._runner_thread.wait(1000)
+            if self._runner_thread.isRunning():
+                return
 
-        stdin_data = self._input_area.toPlainText()
         timeout = self._settings.get("execution_timeout", 10)
 
-        self._clear_output()
+        self._show_terminal_panel()
+        self._term_output.clear()
+        self._term_append(f"$ Run {state.language}\n\n", "#a6e3a1")
+        self._set_diagnostics([])
         self._set_running_state(True)
 
         self._runner_thread = RunnerThread(self)
         self._runner_thread.configure(
             language=state.language,
             code=code,
-            stdin_data=stdin_data,
+            stdin_data="",
             timeout=timeout,
             saved_path=state.file_path,
         )
@@ -1383,53 +1363,42 @@ class NitinEditor(QMainWindow):
     def _stop_execution(self) -> None:
         if self._runner_thread and self._runner_thread.isRunning():
             self._runner_thread.stop_execution()
+        elif hasattr(self, "_term_thread") and self._term_thread.isRunning():
+            self._term_thread.stop()
         else:
             self._set_running_state(False)
             self._set_status("Ready")
 
-    def _send_live_input(self) -> None:
-        text = self._live_input.text()
-        self._live_input.clear()
-
-        if not text and not (self._runner_thread and self._runner_thread.isRunning()):
-            return
-
-        data_to_send = text + "\n"
-
-        if self._runner_thread and self._runner_thread.isRunning():
-            self._runner_thread.send_stdin(data_to_send)
-            self._input_area.appendPlainText(f"> {text}")
-            self._set_status(f"Sent stdin: {text}")
-        else:
-            self._input_area.appendPlainText(text)
-
     def _send_eof(self) -> None:
         if self._runner_thread and self._runner_thread.isRunning():
             self._runner_thread.close_stdin()
-            self._input_area.appendPlainText("[EOF sent]")
+            self._term_append("^D\n", "#f9e2af")
             self._set_status("Sent EOF to process")
 
     def _set_running_state(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._stop_btn.setEnabled(running)
+        if hasattr(self, "_term_stop_btn"):
+            self._term_stop_btn.setEnabled(running or self._term_running)
         if running:
             self._set_status("Running…")
-            self._exec_status.setText("  ⚡ Running…")
-            self._exec_status.setStyleSheet(
-                "background:#181825; color:#89b4fa; font-size:11px; padding:3px 10px; border-top:1px solid #313244;"
-            )
 
     def _on_run_started(self) -> None:
         self._set_status("Running…")
 
     def _on_stdout_chunk(self, chunk: str) -> None:
-        self._append_output(chunk, "#cdd6f4")
+        self._term_append(chunk, "#cdd6f4")
 
     def _on_stderr_chunk(self, chunk: str) -> None:
-        self._append_output(chunk, "#f38ba8")
+        self._term_append(chunk, "#f38ba8")
 
     def _on_runner_status(self, msg: str) -> None:
         self._set_status(msg)
+        if msg == "Running…":
+            if hasattr(self, "_term_console"):
+                self._term_console.setFocus()
+            elif hasattr(self, "_term_input"):
+                self._term_input.setFocus()
 
     def _on_run_finished(self, result) -> None:
         # Always restore UI
@@ -1441,34 +1410,45 @@ class NitinEditor(QMainWindow):
             return
 
         if result.cancelled:
-            self._append_output("\n⏹  Execution stopped by user.\n", "#f9e2af")
+            self._term_append("\n⏹  Execution stopped by user.\n", "#f9e2af")
             self._set_status("Stopped.")
-            self._exec_status.setText("  Stopped")
-            self._exec_status.setStyleSheet(
-                "background:#181825; color:#f9e2af; font-size:11px; padding:3px 10px; border-top:1px solid #313244;"
-            )
+            self._reset_terminal_input()
             return
 
         if result.error_message:
-            self._append_output(f"\n❌  {result.error_message}\n", "#f38ba8")
+            self._term_append(f"\n❌  {result.error_message}\n", "#f38ba8")
             self._set_status("Error.")
-            self._exec_status.setText("  Error")
-            self._exec_status.setStyleSheet(
-                "background:#181825; color:#f38ba8; font-size:11px; padding:3px 10px; border-top:1px solid #313244;"
-            )
+            self._reset_terminal_input()
             return
 
         # ── Compile errors ──
         if result.is_compile_error:
-            self._clear_output()
-            self._append_output("── COMPILE ERROR ──\n", "#fab387")
+            self._term_append("\n── COMPILE ERROR ──\n", "#fab387")
             if result.stderr:
-                self._append_output(result.stderr, "#f38ba8")
+                self._term_append(result.stderr, "#f38ba8")
             if result.stdout:
-                self._append_output(result.stdout, "#f38ba8")
+                self._term_append(result.stdout, "#f38ba8")
+            
+            diagnostics = parse_diagnostics(
+                (result.stderr or "") + "\n" + (result.stdout or ""),
+                self._current_state().language if self._current_state() else ""
+            )
+            self._set_diagnostics(diagnostics)
+            self._bottom_tabs.setCurrentWidget(self._problems_panel)
+            self._set_status("Compile error")
+            self._reset_terminal_input()
+            return
+
+        elif result.compiler_output:
+            diagnostics = parse_diagnostics(
+                result.compiler_output,
+                self._current_state().language if self._current_state() else ""
+            )
+            if diagnostics:
+                self._set_diagnostics(diagnostics)
 
         if result.timed_out:
-            self._append_output(
+            self._term_append(
                 f"\n⏱  Timed out after {self._settings.get('execution_timeout', 10)}s.\n",
                 "#f9e2af",
             )
@@ -1477,26 +1457,35 @@ class NitinEditor(QMainWindow):
         if result.timed_out:
             status_text = "Timed out"
             status_color = "#f9e2af"
-        elif result.is_compile_error:
-            status_text = "Compile error"
-            status_color = "#f38ba8"
         elif result.exit_code == 0:
             status_text = "Finished ✓"
             status_color = "#a6e3a1"
         else:
-            status_text = f"Exit code: {result.exit_code}"
+            display_exit = 128 - result.exit_code if result.exit_code < 0 else result.exit_code
+            status_text = f"Exit code: {display_exit}"
             status_color = "#f38ba8"
 
         self._set_status(status_text)
-        self._exec_status.setText(
-            f"  {status_text}   ·   Time: {result.elapsed_time:.3f}s   ·   Exit: {result.exit_code}"
-        )
-        self._exec_status.setStyleSheet(
-            f"background:#181825; color:{status_color}; font-size:11px;"
-            f" padding:3px 10px; border-top:1px solid #313244;"
-        )
+        if not result.is_compile_error:
+            display_exit = 128 - result.exit_code if result.exit_code < 0 else result.exit_code
+            
+            # Runtime error description (e.g. segfault)
+            if display_exit in (139, 11):
+                self._term_append("\n❌  Runtime Error: Segmentation fault (SIGSEGV)\n", "#f38ba8")
+            elif display_exit in (134, 6):
+                self._term_append("\n❌  Runtime Error: Aborted (SIGABRT)\n", "#f38ba8")
+            elif display_exit in (136, 8):
+                self._term_append("\n❌  Runtime Error: Floating point exception / Division by zero\n", "#f38ba8")
+                
+            self._term_append(
+                f"\nProcess exited with code {display_exit}  ·  Time: {result.elapsed_time:.3f}s\n",
+                status_color,
+            )
+        self._reset_terminal_input()
 
-    # ── Output helpers ────────────────────────────────────────────────────────
+
+    def _reset_terminal_input(self) -> None:
+        pass
 
     def _append_output(self, text: str, color: str = OUTPUT_FG) -> None:
         cursor = self._output_area.textCursor()
@@ -1510,11 +1499,67 @@ class NitinEditor(QMainWindow):
 
     def _clear_output(self) -> None:
         self._output_area.clear()
-        self._exec_status.setText("")
-        self._exec_status.setStyleSheet(
-            "background:#181825; color:#7f849c; font-size:11px;"
-            " padding:3px 10px; border-top:1px solid #313244;"
-        )
+
+
+
+    def _set_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
+        self._problems_list.clear()
+        for diagnostic in diagnostics:
+            location = ""
+            if diagnostic.line:
+                filename = Path(diagnostic.file).name if diagnostic.file else "main"
+                location = f"{filename}:{diagnostic.line}"
+                if diagnostic.column:
+                    location += f":{diagnostic.column}"
+                location += "  "
+
+            icon = "🔴" if diagnostic.severity == "error" else ("🟡" if diagnostic.severity == "warning" else "🔵")
+            color = "#f38ba8" if diagnostic.severity == "error" else ("#f9e2af" if diagnostic.severity == "warning" else "#89b4fa")
+
+            item = QListWidgetItem(f"{icon}  {diagnostic.severity.upper()}  ·  {location}{diagnostic.message}")
+            item.setData(Qt.ItemDataRole.UserRole, diagnostic)
+            item.setForeground(QColor(color))
+            self._problems_list.addItem(item)
+        self._bottom_tabs.setTabText(0, f"PROBLEMS  {len(diagnostics)}")
+
+    def _go_to_diagnostic(self, item: QListWidgetItem) -> None:
+        diagnostic = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(diagnostic, Diagnostic) or not diagnostic.line:
+            return
+
+        # Find matching open tab if diagnostic specifies a file
+        if diagnostic.file:
+            diag_file_path = Path(diagnostic.file)
+            for idx in range(self._tab_widget.count()):
+                container = self._tab_widget.widget(idx)
+                cid = id(container)
+                state = self._tab_states.get(cid)
+                if state:
+                    if state.file_path and state.file_path.name == diag_file_path.name:
+                        self._tab_widget.setCurrentIndex(idx)
+                        break
+                    elif state.title == diag_file_path.name or state.display_title == diag_file_path.name:
+                        self._tab_widget.setCurrentIndex(idx)
+                        break
+
+        editor = self._current_editor()
+        if editor is None:
+            return
+
+        doc = editor.document()
+        block = doc.findBlockByNumber(max(0, diagnostic.line - 1))
+        if not block.isValid():
+            return
+
+        cursor = QTextCursor(block)
+        col = max(0, (diagnostic.column or 1) - 1)
+        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor, col)
+        if diagnostic.column and col < block.length() - 1:
+            cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+
+        editor.setTextCursor(cursor)
+        editor.setFocus()
+        editor.ensureCursorVisible()
 
     # ── Preview ───────────────────────────────────────────────────────────────
 
@@ -1609,6 +1654,7 @@ class NitinEditor(QMainWindow):
             self._update_cursor_status(line, col)
 
     def _set_status(self, text: str) -> None:
+        self._status_text = text
         self._status_ready.setText(text)
 
     # ── SQL execution ─────────────────────────────────────────────────────────
@@ -1620,8 +1666,8 @@ class NitinEditor(QMainWindow):
             return
         sql = editor.get_text().strip()
         if not sql:
-            self._clear_output()
-            self._append_output("⚠  No SQL to execute.\n", "#f9e2af")
+            self._show_terminal_panel()
+            self._term_append("⚠  No SQL to execute.\n", "#f9e2af")
             return
 
         if self._runner_thread and self._runner_thread.isRunning():
@@ -1629,9 +1675,10 @@ class NitinEditor(QMainWindow):
 
         db_path = self._sql_db_path  # None = temp db
 
-        self._clear_output()
+        self._show_terminal_panel()
+        self._term_output.clear()
         self._set_running_state(True)
-        self._append_output("⚙  Executing SQL (SQLite)…\n\n", "#89b4fa")
+        self._term_append("⚙  Executing SQL (SQLite)…\n\n", "#89b4fa")
 
         # Run in background thread using QThread to keep GUI responsive
         self._sql_thread = _SQLThread(sql, db_path, parent=self)
@@ -1641,20 +1688,68 @@ class NitinEditor(QMainWindow):
     def _on_sql_finished(self, result: SQLResult) -> None:
         self._set_running_state(False)
         if result.output:
-            self._append_output(result.output, "#cdd6f4")
+            self._term_append(result.output, "#cdd6f4")
         if result.error:
-            self._append_output(f"❌  {result.error}\n", "#f38ba8")
+            self._term_append(f"❌  {result.error}\n", "#f38ba8")
+        if not result.success:
+            message = result.error
+            if not message and "SQL Error:" in result.output:
+                message = result.output.split("SQL Error:", 1)[1].split("Statement:", 1)[0].strip()
+            self._set_diagnostics([sql_diagnostic(message or "SQL error")])
+            self._bottom_tabs.setCurrentWidget(self._problems_panel)
         status_text = "SQL OK ✓" if result.success else "SQL Error"
         status_color = "#a6e3a1" if result.success else "#f38ba8"
         self._set_status(status_text)
-        self._exec_status.setText(
-            f"  {status_text}   ·   Statements: {result.statement_count}"
-            f"   ·   Time: {result.elapsed_time:.3f}s"
+        self._term_append(
+            f"\n{status_text}  ·  Statements: {result.statement_count}  ·  Time: {result.elapsed_time:.3f}s\n",
+            status_color,
         )
-        self._exec_status.setStyleSheet(
-            f"background:#181825; color:{status_color}; font-size:11px;"
-            f" padding:3px 10px; border-top:1px solid #313244;"
-        )
+
+    def _make_integrated_terminal_panel(self) -> QWidget:
+        """One terminal stream for program I/O and optional shell commands."""
+        panel = QWidget()
+        panel.setStyleSheet("background:#11111b;")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedHeight(34)
+        header.setStyleSheet("background:#1a1a2e;border-bottom:1px solid #313244;")
+        row = QHBoxLayout(header)
+        row.setContentsMargins(10, 0, 8, 0)
+        label = QLabel("⌨  TERMINAL")
+        label.setStyleSheet("color:#89b4fa;font-size:12px;font-weight:bold;")
+        row.addWidget(label)
+        row.addStretch()
+        self._term_os_combo = QComboBox()
+        self._term_os_combo.addItems(["Linux", "macOS", "Windows"])
+        self._term_os_combo.setCurrentText(self._settings.get("terminal_default_os", "Linux"))
+        self._term_os_combo.setMaximumWidth(115)
+        row.addWidget(self._term_os_combo)
+        eof = QPushButton("EOF")
+        eof.clicked.connect(self._send_eof)
+        row.addWidget(eof)
+        clear = QPushButton("Clear")
+        clear.clicked.connect(lambda: self._term_console.clear_terminal())
+        row.addWidget(clear)
+        self._term_stop_btn = QPushButton("■ Stop")
+        self._term_stop_btn.clicked.connect(self._stop_execution)
+        self._term_stop_btn.setEnabled(False)
+        row.addWidget(self._term_stop_btn)
+        layout.addWidget(header)
+
+        self._term_console = TerminalConsole()
+        self._term_console.set_history(self._term_history)
+        self._term_console.input_submitted.connect(self._on_terminal_input_submitted)
+        self._term_console.interrupt_requested.connect(self._stop_execution)
+        self._term_console.eof_requested.connect(self._send_eof)
+        layout.addWidget(self._term_console)
+
+        self._term_output = self._term_console
+        self._term_input = _TermInputCompat(self._term_console)
+        self._terminal_prompt = QLabel("$")
+        return panel
 
     def _select_sql_db(self) -> None:
         """Open a dialog to choose a SQLite database file for SQL execution."""
@@ -1678,14 +1773,13 @@ class NitinEditor(QMainWindow):
     # ── Terminal panel ────────────────────────────────────────────────────────
 
     def _show_terminal_panel(self) -> None:
-        """Show or focus the terminal panel (docked at the bottom)."""
-        if not self.isVisible():
-            self.show()
-        if not hasattr(self, "_terminal_dock") or self._terminal_dock is None:
-            self._build_terminal_panel()
-        # Make visible
-        self._terminal_panel_widget.setVisible(True)
-        self._term_input.setFocus()
+        """Select the shared integrated terminal tab."""
+        self._bottom_tabs.setCurrentWidget(self._terminal_panel_widget)
+        if hasattr(self, "_term_console"):
+            self._term_console.setFocus()
+        elif hasattr(self, "_term_input"):
+            self._term_input.setFocus()
+
 
     def _build_terminal_panel(self) -> None:
         """
@@ -1845,12 +1939,38 @@ class NitinEditor(QMainWindow):
         )
 
     def eventFilter(self, obj, event) -> bool:
-        """Handle ↑/↓ history navigation in terminal input."""
+        """Handle universal shortcuts (Zoom In/Out/Reset) and terminal input navigation."""
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent as QKE
+
+        if event.type() == QEvent.Type.KeyPress:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                # Zoom In: Ctrl++ or Ctrl+=
+                if (
+                    event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal)
+                    or event.text() in ("+", "=")
+                ):
+                    self._zoom_in()
+                    return True
+                # Zoom Out: Ctrl+- or Ctrl+_ or Ctrl+hyphen
+                elif (
+                    event.key() in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore, Qt.Key.Key_hyphen)
+                    or event.text() in ("-", "_", "", "–", "—")
+                ):
+                    self._zoom_out()
+                    return True
+                # Zoom Reset: Ctrl+0
+                elif event.key() == Qt.Key.Key_0 or event.text() == "0":
+                    self._zoom_reset()
+                    return True
         if hasattr(self, "_term_input") and obj is self._term_input:
             if event.type() == QEvent.Type.KeyPress:
                 key = event.key()
+                if key == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    if self._runner_thread and self._runner_thread.isRunning():
+                        self._term_append("^C\n", "#f9e2af")
+                        self._stop_execution()
+                        return True
                 if key == Qt.Key.Key_Up:
                     self._term_history_up()
                     return True
@@ -1885,20 +2005,30 @@ class NitinEditor(QMainWindow):
             self._sql_db_btn.setVisible(is_sql)
 
     def _term_execute(self) -> None:
-        """Execute the command in the terminal input box."""
-        if not hasattr(self, "_term_output"):
-            self._show_terminal_panel()
+        """Send live program input, or execute a shell command when idle."""
+        raw = self._term_input.text()
+        self._on_terminal_input_submitted(raw)
 
-        cmd = self._term_input.text().strip()
-        self._term_input.clear()
+    def _on_terminal_input_submitted(self, raw: str) -> None:
         self._term_history_pos = -1
+
+        if self._runner_thread and self._runner_thread.isRunning():
+            sent = self._runner_thread.send_stdin(raw + "\n")
+            if not sent:
+                self._term_append("[process stdin is closed]\n", "#f9e2af")
+            return
+
+        cmd = raw.strip()
 
         if not cmd:
             return
 
         # Built-in commands
         if cmd == "clear":
-            self._term_output.clear()
+            if hasattr(self, "_term_console"):
+                self._term_console.clear_terminal()
+            elif hasattr(self, "_term_output"):
+                self._term_output.clear()
             return
         if cmd in ("help", "?"):
             self._term_append(get_reference_text() + "\n\n", "#89b4fa")
@@ -1907,11 +2037,10 @@ class NitinEditor(QMainWindow):
         # Add to persistent history
         self._term_history = history_add(self._term_history, cmd)
         save_history(self._term_history)
+        if hasattr(self, "_term_console"):
+            self._term_console.set_history(self._term_history)
 
         target_os = self._term_os_combo.currentText() if hasattr(self, "_term_os_combo") else "Linux"
-
-        # Show prompt echo
-        self._term_append(f"$ {cmd}\n", "#a6e3a1")
 
         # Safety check (only for Linux commands that will actually execute)
         if target_os == "Linux" and self._settings.get("terminal_confirm_dangerous", True):
@@ -1944,7 +2073,8 @@ class NitinEditor(QMainWindow):
         )
         self._term_thread.done_sig.connect(self._on_term_finished)
         self._term_running = True
-        self._term_stop_btn.setEnabled(True)
+        if hasattr(self, "_term_stop_btn"):
+            self._term_stop_btn.setEnabled(True)
         self._term_thread.start()
 
     def _on_term_finished(self, result: CommandResult) -> None:
@@ -1969,16 +2099,20 @@ class NitinEditor(QMainWindow):
             self._term_thread.stop()
 
     def _term_append(self, text: str, color: str = "#cdd6f4") -> None:
-        if not hasattr(self, "_term_output"):
-            return
-        cursor = self._term_output.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        fmt = cursor.charFormat()
-        fmt.setForeground(QColor(color))
-        cursor.setCharFormat(fmt)
-        cursor.insertText(text)
-        self._term_output.setTextCursor(cursor)
-        self._term_output.ensureCursorVisible()
+        if hasattr(self, "_term_console"):
+            self._term_console._append_chunk(text, color)
+        elif hasattr(self, "_term_output") and hasattr(self._term_output, "_append_chunk"):
+            self._term_output._append_chunk(text, color)
+        elif hasattr(self, "_term_output"):
+            cursor = self._term_output.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            fmt = cursor.charFormat()
+            fmt.setForeground(QColor(color))
+            cursor.setCharFormat(fmt)
+            cursor.insertText(text)
+            self._term_output.setTextCursor(cursor)
+            self._term_output.ensureCursorVisible()
+
 
     # ── Command reference / environment ──────────────────────────────────────
 
@@ -1993,7 +2127,7 @@ class NitinEditor(QMainWindow):
 
     def _show_env_info(self) -> None:
         """Show real environment information for the current host OS."""
-        import shutil, platform as _plat
+        import shutil
 
         lines: list[str] = []
 
@@ -2007,11 +2141,12 @@ class NitinEditor(QMainWindow):
                 return ""
 
         host_os = get_host_os_name()
+        uname = os.uname() if hasattr(os, "uname") else None
         lines.append(f"Host OS:      {host_os}")
-        lines.append(f"Platform:     {_plat.platform()}")
-        lines.append(f"Architecture: {_plat.machine()}")
-        lines.append(f"Kernel:       {_plat.release()}")
-        lines.append(f"Python:       {_plat.python_version()} ({shutil.which('python3') or 'not found'})")
+        lines.append(f"Platform:     {sys.platform}")
+        lines.append(f"Architecture: {uname.machine if uname else 'unknown'}")
+        lines.append(f"Kernel:       {uname.release if uname else 'unknown'}")
+        lines.append(f"Python:       {sys.version.split()[0]} ({shutil.which('python3') or 'not found'})")
         lines.append("")
 
         tools = [
@@ -2075,7 +2210,8 @@ class NitinEditor(QMainWindow):
 <tr><td><b>Ctrl+F</b></td><td>Find</td></tr>
 <tr><td><b>Ctrl+H</b></td><td>Find &amp; Replace</td></tr>
 <tr><td><b>Ctrl+Shift+P</b></td><td>HTML/CSS Preview</td></tr>
-<tr><td><b>Ctrl+= / Ctrl+-</b></td><td>Zoom In / Out</td></tr>
+<tr><td><b>Ctrl++ / Ctrl+=</b></td><td>Zoom In</td></tr>
+<tr><td><b>Ctrl+-</b></td><td>Zoom Out</td></tr>
 <tr><td><b>Ctrl+0</b></td><td>Reset Zoom</td></tr>
 <tr><td><b>Ctrl+Tab</b></td><td>Next Tab</td></tr>
 <tr><td><b>Ctrl+Q</b></td><td>Quit</td></tr>

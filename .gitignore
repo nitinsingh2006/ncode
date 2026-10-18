@@ -7,3 +7,5 @@ temp/
 *.sqlite
 *.sqlite3
 
+__pycache__/
+*.pyc

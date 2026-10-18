@@ -72,14 +72,15 @@ def run_gui_tests():
     assert received_result is not None
     assert received_result.exit_code == 0, f"Exit code {received_result.exit_code}, stderr: {received_result.stderr}"
     assert "HEADLESS_GUI_SUCCESS" in received_result.stdout, f"Stdout was: {received_result.stdout}"
-    assert "HEADLESS_GUI_SUCCESS" in window._output_area.toPlainText()
+    assert "HEADLESS_GUI_SUCCESS" in window._term_output.toPlainText()
     print("  ✓ Code execution via GUI runner verified")
 
-    print("▶ Test 5: Input / Output clear & toggle")
-    window._input_area.setPlainText("test input")
-    assert window._input_area.toPlainText() == "test input"
-    window._clear_output()
-    assert window._output_area.toPlainText() == ""
+    print("▶ Test 5: Terminal Input / Output clear & toggle")
+    window._term_input.setText("test input")
+    assert window._term_input.text() == "test input"
+    window._term_input.clear()
+    window._term_output.clear()
+    assert window._term_output.toPlainText() == ""
     print("  ✓ Input/output clear verified")
 
     print("▶ Test 6: Settings dialog instantiation")
@@ -113,8 +114,7 @@ def run_gui_tests():
         '    return 0;\n'
         '}'
     )
-    window._input_area.clear()
-    window._live_input.clear()
+    window._term_input.clear()
 
     cpp_finished = False
     cpp_result = None
@@ -131,9 +131,9 @@ def run_gui_tests():
 
     # Poll until runner is running and streams 'Enter:'
     def check_and_send():
-        if window._runner_thread and window._runner_thread.isRunning() and "Enter:" in window._output_area.toPlainText():
-            window._live_input.setText("10")
-            window._send_live_input()
+        if window._runner_thread and window._runner_thread.isRunning() and "Enter:" in window._term_output.toPlainText():
+            window._term_input.setText("10")
+            window._term_execute()
         else:
             QTimer.singleShot(100, check_and_send)
 
@@ -146,7 +146,7 @@ def run_gui_tests():
     assert cpp_finished, "C++ interactive execution did not finish"
     assert cpp_result is not None
     assert cpp_result.exit_code == 0, f"Exit code {cpp_result.exit_code}, stderr: {cpp_result.stderr}"
-    assert "Result: 10" in window._output_area.toPlainText(), f"Output was: {window._output_area.toPlainText()}"
+    assert "Result: 10" in window._term_output.toPlainText(), f"Output was: {window._term_output.toPlainText()}"
     print("  ✓ Interactive C++ stdin via GUI verified (Result: 10)")
 
     print("▶ Test 9: Ctrl+N Action & Collision-Free Untitled Naming")
@@ -196,13 +196,14 @@ def run_gui_tests():
     assert sql_finished, "SQL execution did not finish"
     assert sql_res is not None
     assert sql_res.success, f"SQL error: {sql_res.error}"
-    assert "hello" in window._output_area.toPlainText()
+    assert "hello" in window._term_output.toPlainText()
+    print("  ✓ SQL execution via GUI runner verified")
     print("  ✓ SQL execution via GUI runner verified")
 
     print("▶ Test 11: Terminal panel toggle & command execution")
     window._show_terminal_panel()
     assert hasattr(window, "_terminal_panel_widget")
-    assert window._terminal_panel_widget.isVisible()
+    assert window._bottom_tabs.currentWidget() == window._terminal_panel_widget
 
     term_finished = False
     def on_term_done(result):

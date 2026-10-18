@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect x="8" y="8" width="240" height="240" rx="38" fill="#18212b" stroke="#4b91ff" stroke-width="8"/>
+  <rect x="30" y="30" width="196" height="28" rx="8" fill="#263442"/>
+  <circle cx="48" cy="44" r="6" fill="#ff5f57"/>
+  <circle cx="68" cy="44" r="6" fill="#febc2e"/>
+  <circle cx="88" cy="44" r="6" fill="#28c840"/>
+  <path d="M96 91 L52 128 L96 165" fill="none" stroke="#55a7ff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M160 91 L204 128 L160 165" fill="none" stroke="#61d095" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M145 78 L111 178" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+  <text x="128" y="215" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="bold" fill="#ffffff">NITIN EDITOR</text>
+</svg>

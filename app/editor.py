@@ -446,6 +446,9 @@ class CodeEditor(QPlainTextEdit):
     """
     run_requested = Signal()
     cursor_position_changed = Signal(int, int)
+    zoom_in_requested = Signal()
+    zoom_out_requested = Signal()
+    zoom_reset_requested = Signal()
 
     # Opening/closing bracket pairs for matching
     OPEN_BRACKETS = "([{"
@@ -472,6 +475,7 @@ class CodeEditor(QPlainTextEdit):
                 border: none;
                 selection-background-color: {C_SELECTION};
                 selection-color: {C_FG};
+                font-size: {self._font_size}pt;
             }}
         """)
         # Monospace font
@@ -592,6 +596,24 @@ class CodeEditor(QPlainTextEdit):
             self.run_requested.emit()
             return
 
+        # Zoom shortcuts: Ctrl++, Ctrl+=, Ctrl+-, Ctrl+0
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal) or event.text() in ("+", "="):
+                self.zoom_in_requested.emit()
+                event.accept()
+                return
+            elif (
+                event.key() in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore, Qt.Key.Key_hyphen)
+                or event.text() in ("-", "_", "", "–", "—")
+            ):
+                self.zoom_out_requested.emit()
+                event.accept()
+                return
+            elif event.key() == Qt.Key.Key_0 or event.text() == "0":
+                self.zoom_reset_requested.emit()
+                event.accept()
+                return
+
         # Tab → spaces
         if event.key() == Qt.Key.Key_Tab and not event.modifiers():
             self._insert_spaces()
@@ -640,6 +662,17 @@ class CodeEditor(QPlainTextEdit):
                         cursor.removeSelectedText()
 
         super().keyPressEvent(event)
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoom_in_requested.emit()
+            elif delta < 0:
+                self.zoom_out_requested.emit()
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def _insert_spaces(self) -> None:
         cursor = self.textCursor()
@@ -693,12 +726,24 @@ class CodeEditor(QPlainTextEdit):
 
     def set_font_size(self, size: int) -> None:
         self._font_size = size
+        self.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {C_BG};
+                color: {C_FG};
+                border: none;
+                selection-background-color: {C_SELECTION};
+                selection-color: {C_FG};
+                font-size: {size}pt;
+            }}
+        """)
         font = self.font()
         font.setPointSize(size)
         self.setFont(font)
+        self.document().setDefaultFont(font)
         fm = self.fontMetrics()
         self.setTabStopDistance(fm.horizontalAdvance(" ") * self._tab_size)
         self._update_line_number_area_width(0)
+        self._line_area.update()
 
     def set_tab_size(self, size: int) -> None:
         self._tab_size = size
