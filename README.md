@@ -144,4 +144,4 @@ Terminal History: `~/.config/nitin-editor/terminal_history.json`
 
 ## License
 
-Private — for personal use only.
+MIT — see the LICENSE file.
