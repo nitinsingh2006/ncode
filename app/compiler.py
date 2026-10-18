@@ -387,8 +387,8 @@ def _build_commands(
     elif language == "TypeScript":
         src = temp_dir / "script.ts"
         src.write_text(code, encoding="utf-8")
-        # Modern Node.js (v22+) runs TypeScript directly
-        run_cmd = ["node", str(src)]
+        # Node.js v22.6+ supports TypeScript natively with --experimental-strip-types
+        run_cmd = ["node", "--experimental-strip-types", str(src)]
 
     elif language == "Rust":
         src = temp_dir / "main.rs"
@@ -546,10 +546,20 @@ def _run_subprocess(
     start_time = time.monotonic()
 
     env = os.environ.copy()
-    path_extra = "/usr/local/bin:/usr/bin:/bin"
-    current_path = env.get("PATH", "")
-    if path_extra not in current_path:
-        env["PATH"] = path_extra + ":" + current_path
+    # Include user-local bins (Go, Rust cargo, etc.) and standard paths
+    home = str(Path.home())
+    path_extras = [
+        f"{home}/.local/bin",
+        f"{home}/.cargo/bin",
+        f"{home}/.local/go/bin",
+        "/usr/local/go/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+    ]
+    existing = env.get("PATH", "").split(":")
+    new_paths = [p for p in path_extras if p not in existing]
+    env["PATH"] = ":".join(new_paths) + ":" + env.get("PATH", "")
     env["PYTHONUNBUFFERED"] = "1"
 
     try:

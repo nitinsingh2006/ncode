@@ -138,10 +138,56 @@ DEFAULT_CODE: dict[str, str] = {
     ),
     "JavaScript": '// Nitin Editor — JavaScript\nconsole.log("Hello, Nitin!");\n',
     "HTML": (
-        '<!DOCTYPE html>\n<html>\n<head>\n'
-        '    <title>Nitin Editor</title>\n</head>\n<body>\n'
-        '    <h1>Hello, Nitin!</h1>\n    <p>Welcome to Nitin Editor.</p>\n'
-        '</body>\n</html>\n'
+        '<!DOCTYPE html>\n'
+        '<html lang="en">\n'
+        '<head>\n'
+        '  <meta charset="UTF-8">\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '  <title>Nitin Editor — HTML Preview</title>\n'
+        '  <style>\n'
+        '    /* ── Inline CSS ── */\n'
+        '    body {\n'
+        '      margin: 0;\n'
+        '      font-family: "Segoe UI", Roboto, Arial, sans-serif;\n'
+        '      background: linear-gradient(135deg, #1e1e2e, #313244);\n'
+        '      color: #cdd6f4;\n'
+        '      display: flex;\n'
+        '      flex-direction: column;\n'
+        '      align-items: center;\n'
+        '      justify-content: center;\n'
+        '      min-height: 100vh;\n'
+        '    }\n'
+        '    h1 { color: #89b4fa; font-size: 2.5rem; margin-bottom: 0.25rem; }\n'
+        '    p  { color: #a6adc8; font-size: 1.1rem; }\n'
+        '    button {\n'
+        '      margin-top: 1rem;\n'
+        '      padding: 0.6rem 1.6rem;\n'
+        '      background: #89b4fa;\n'
+        '      color: #1e1e2e;\n'
+        '      border: none;\n'
+        '      border-radius: 8px;\n'
+        '      font-size: 1rem;\n'
+        '      cursor: pointer;\n'
+        '      transition: background 0.2s;\n'
+        '    }\n'
+        '    button:hover { background: #b4befe; }\n'
+        '    #output { margin-top: 1rem; font-size: 1rem; color: #a6e3a1; }\n'
+        '  </style>\n'
+        '</head>\n'
+        '<body>\n'
+        '  <h1>Hello, Nitin! 🚀</h1>\n'
+        '  <p>Welcome to <strong>Nitin Editor</strong> — HTML + CSS + JS together!</p>\n'
+        '  <button onclick="greet()">Click me</button>\n'
+        '  <p id="output"></p>\n\n'
+        '  <script>\n'
+        '    /* ── Inline JavaScript ── */\n'
+        '    function greet() {\n'
+        '      document.getElementById("output").textContent =\n'
+        '        "🎉 JavaScript is working perfectly!";\n'
+        '    }\n'
+        '  </script>\n'
+        '</body>\n'
+        '</html>\n'
     ),
     "CSS": (
         '/* CSS Preview */\nbody {\n    background: #1e1e2e;\n'
@@ -1678,16 +1724,20 @@ class NitinEditor(QMainWindow):
 
         # Create dialog ONCE — never recreate or reparent the PreviewPanel!
         if self._preview_dialog is None:
-            self._preview_dialog = QDialog(self)
+            # Use Window flag so it's a standalone window, not a modal child
+            self._preview_dialog = QDialog(self, Qt.WindowType.Window)
             self._preview_dialog.setWindowTitle("HTML/CSS Live Preview — Nitin Editor")
             self._preview_dialog.resize(920, 640)
+            # Never destroy on close — we reuse the same WebEngine widget
+            self._preview_dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
             dlayout = QVBoxLayout(self._preview_dialog)
             dlayout.setContentsMargins(0, 0, 0, 0)
             try:
                 self._preview_panel = PreviewPanel(self._preview_dialog)
                 dlayout.addWidget(self._preview_panel)
-            except Exception as e:
+            except Exception:
                 # Fallback to direct default browser if widget creation fails
+                self._preview_dialog = None
                 self._open_in_browser()
                 return
 
