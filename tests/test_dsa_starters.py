@@ -1,5 +1,6 @@
 """ncode — DSA Starter Code and Comment Block Tests."""
 import sys
+import ast
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -9,6 +10,8 @@ from app.dsa.starters import (
     SUPPORTED_LANGS, make_comment_block, make_full_editor_content,
     make_starter_code,
 )
+from app.dsa.seed_questions import seed
+from app.dsa.bank import get_all_questions
 
 SAMPLE_Q = Question(
     id=999, title="Test Problem", source="Both", topic="Arrays",
@@ -75,3 +78,9 @@ def test_full_editor_content_with_saved():
 
 def test_unsupported_lang_fallback():
     assert len(make_starter_code(SAMPLE_Q, "Lua")) > 5
+
+
+def test_python_starters_parse_for_every_bank_question():
+    seed()
+    for question in get_all_questions():
+        ast.parse(make_starter_code(question, "Python"))

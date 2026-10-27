@@ -289,13 +289,15 @@ def _generic_starter(language: str, fn: str) -> str:
 def _to_snake(title: str) -> str:
     import re
     s = re.sub(r"[^a-zA-Z0-9 ]", "", title)
-    return "_".join(w.lower() for w in s.split())
+    name = "_".join(w.lower() for w in s.split()) or "solve"
+    return f"solve_{name}" if name[0].isdigit() else name
 
 
 def _to_pascal(title: str) -> str:
     import re
     s = re.sub(r"[^a-zA-Z0-9 ]", "", title)
-    return "".join(w.capitalize() for w in s.split())
+    name = "".join(w.capitalize() for w in s.split()) or "Solve"
+    return f"Solve{name}" if name[0].isdigit() else name
 
 
 def _to_camel(title: str) -> str:
