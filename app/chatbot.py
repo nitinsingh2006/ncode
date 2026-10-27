@@ -126,7 +126,7 @@ class ChatbotPanel(QWidget):
     def clear_chat(self) -> None:
         self._history.clear()
         self._chat_display.clear()
-        self._append_bubble("system", "🤖 Conversation cleared. Context still active.")
+        self._append_bubble("system", "Conversation cleared. Context still active.")
 
     # ── UI builder ────────────────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ class ChatbotPanel(QWidget):
 
         # Welcome message
         self._append_bubble(
-            "assistant",
+            "system",
             "Namaste! 👋 Main tumhara AI assistant hoon.\n"
             "Jo tab abhi khula hai uska code main dekh sakta hoon.\n"
             "Kuch bhi poochho — explain, debug, optimize!",
@@ -323,15 +323,7 @@ class ChatbotPanel(QWidget):
     # ── Display helpers ───────────────────────────────────────────────────────
 
     def _append_bubble(self, role: str, text: str) -> None:
-        """Append a styled chat bubble to the display."""
-        colors = {
-            "user":      ("#89dceb", "#1e3a4a", "You"),
-            "assistant": ("#a6e3a1", "#1e3a2a", "AI"),
-            "error":     ("#f38ba8", "#3a1e2a", "⚠"),
-            "system":    ("#6c7086", "#1e1e2e", ""),
-            "thinking":  ("#fab387", "#1e1e2e", "AI"),
-        }
-        color, bg, label = colors.get(role, ("#cdd6f4", "#1e1e2e", ""))
+        """Append a styled chat bubble — user right-aligned (ChatGPT style), AI left-aligned."""
 
         # Escape HTML
         safe = (
@@ -344,8 +336,9 @@ class ChatbotPanel(QWidget):
         safe = re.sub(
             r"```(\w*)\n?(.*?)```",
             lambda m: (
-                f'<pre style="background:#11111b;color:#89b4fa;padding:6px;'
-                f'border-radius:4px;margin:4px 0;font-size:11px;">'
+                f'<pre style="background:#11111b;color:#89b4fa;padding:8px 10px;'
+                f'border-radius:6px;margin:6px 0;font-size:11px;'
+                f'white-space:pre-wrap;word-break:break-all;">'
                 f'{m.group(2)}</pre>'
             ),
             safe,
@@ -355,28 +348,105 @@ class ChatbotPanel(QWidget):
         # Inline code
         safe = re.sub(
             r"`([^`]+)`",
-            r'<code style="background:#313244;color:#f38ba8;padding:1px 4px;border-radius:3px;">\1</code>',
+            r'<code style="background:#313244;color:#f38ba8;padding:1px 5px;'
+            r'border-radius:3px;font-size:11px;">\1</code>',
+            safe,
+        )
+
+        # Bold **text**
+        safe = re.sub(
+            r"\*\*(.+?)\*\*",
+            r'<b>\1</b>',
             safe,
         )
 
         # Newlines
         safe = safe.replace("\n", "<br>")
 
-        if label:
-            header_html = (
-                f'<span style="color:{color};font-weight:bold;font-size:11px;">{label}</span><br>'
+        if role == "user":
+            # ── User bubble: right-aligned, purple highlight (ChatGPT style) ──
+            bubble_html = (
+                '<div style="display:block;text-align:right;margin:8px 2px 4px 30px;">'
+                '<span style="'
+                'display:inline-block;text-align:left;'
+                'background:#7c3aed;'          # vivid purple
+                'color:#ffffff;'
+                'padding:9px 14px;'
+                'border-radius:18px 18px 4px 18px;'   # ChatGPT-like rounded corners
+                'font-size:12px;'
+                'line-height:1.5;'
+                'max-width:90%;'
+                '">'
+                f'{safe}'
+                '</span>'
+                '</div>'
             )
-        else:
-            header_html = ""
 
-        bubble_html = (
-            f'<div style="margin:6px 2px;padding:8px 10px;'
-            f'background:{bg};border-radius:8px;'
-            f'border-left:3px solid {color};">'
-            f'{header_html}'
-            f'<span style="color:#cdd6f4;font-size:12px;">{safe}</span>'
-            f'</div>'
-        )
+        elif role == "assistant":
+            # ── AI bubble: left-aligned, dark card with green accent ──
+            bubble_html = (
+                '<div style="margin:4px 30px 8px 2px;">'
+                '<div style="margin-bottom:3px;">'
+                '<span style="color:#a6e3a1;font-weight:bold;font-size:10px;'
+                'letter-spacing:1px;">🤖 AI</span>'
+                '</div>'
+                '<div style="'
+                'background:#1a2332;'
+                'color:#cdd6f4;'
+                'padding:10px 14px;'
+                'border-radius:4px 18px 18px 18px;'
+                'border-left:3px solid #a6e3a1;'
+                'font-size:12px;'
+                'line-height:1.6;'
+                '">'
+                f'{safe}'
+                '</div>'
+                '</div>'
+            )
+
+        elif role == "thinking":
+            # ── Thinking indicator: subtle, centered ──
+            bubble_html = (
+                '<div style="margin:4px 30px 8px 2px;">'
+                '<div style="'
+                'background:#1e1e2e;'
+                'color:#fab387;'
+                'padding:8px 14px;'
+                'border-radius:4px 18px 18px 18px;'
+                'border-left:3px solid #fab387;'
+                'font-size:11px;font-style:italic;">'
+                f'{safe}'
+                '</div>'
+                '</div>'
+            )
+
+        elif role == "error":
+            # ── Error bubble: left-aligned, red ──
+            bubble_html = (
+                '<div style="margin:4px 30px 8px 2px;">'
+                '<div style="'
+                'background:#2d1b1b;'
+                'color:#f38ba8;'
+                'padding:9px 14px;'
+                'border-radius:4px 18px 18px 18px;'
+                'border-left:3px solid #f38ba8;'
+                'font-size:12px;">'
+                f'{safe}'
+                '</div>'
+                '</div>'
+            )
+
+        else:
+            # ── System / welcome message: centered, subtle ──
+            bubble_html = (
+                '<div style="text-align:center;margin:10px 4px;">'
+                '<span style="'
+                'color:#6c7086;font-size:11px;font-style:italic;'
+                'background:#181825;padding:4px 12px;border-radius:10px;">'
+                f'{safe}'
+                '</span>'
+                '</div>'
+            )
 
         cursor = self._chat_display.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
