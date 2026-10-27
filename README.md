@@ -17,16 +17,34 @@
 
 ---
 
-## ⚡ Quick Start (after cloning)
+## ⚡ 1-Line Install (Automatic Desktop Icon + Compilers)
+
+To install **ncode** with everything set up automatically (desktop icon, compilers, dependencies):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nitinsingh2006/ncode/main/install.sh | bash
+```
+
+> **What this does automatically:**
+> 1. Clones the repository to `~/ncode`
+> 2. Sets up Python virtual environment + PySide6
+> 3. Checks and installs missing compilers (`g++`, `javac`, `rustc`, `node`)
+> 4. Creates a clickable **Desktop icon** (`~/Desktop/Nitin Editor.desktop`)
+> 5. Installs the terminal shortcut `ncode` into `~/.local/bin`
+
+---
+
+## ⚡ Manual Clone & Run
+
+If you clone with `git`:
 
 ```bash
 git clone https://github.com/nitinsingh2006/ncode.git
 cd ncode
-bash setup.sh --compilers   # one-time: creates venv, PySide6 + installs C++, Java, Rust, Node
-./run.sh                    # launch the editor
+./run.sh
 ```
 
-> **That's it.** `setup.sh` automatically checks for missing compilers (g++, javac, rustc, node) and installs them along with Python dependencies.
+> **Zero extra steps:** `./run.sh` detects first launch automatically, installs requirements, sets up the desktop icon, and launches the app!
 
 ---
 

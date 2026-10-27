@@ -50,8 +50,9 @@ Working model on this account: `qwen/qwen3.8-27b`.
 ```
 ncode/
 │
-├── run.sh                  # Launcher: activates venv, sets Qt platform, runs app
-├── setup.sh                # One-time setup: creates venv, installs PySide6
+├── install.sh              # 1-line curl installer: clones repo, runs setup, creates desktop icon
+├── run.sh                  # Launcher: auto-detects first run, activates venv, runs app
+├── setup.sh                # Setup: venv, PySide6, compilers, desktop icon, 'ncode' CLI
 ├── requirements.txt        # PySide6>=6.6.0  (only pip dep)
 ├── plan.md                 # Original 12-task dev plan (all done ✅)
 ├── tree.md                 # ← THIS FILE

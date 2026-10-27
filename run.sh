@@ -8,16 +8,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 MAIN_PY="$SCRIPT_DIR/app/main.py"
 
-# Activate venv
-if [[ -f "$VENV_DIR/bin/activate" ]]; then
-    source "$VENV_DIR/bin/activate"
-else
-    echo "[ncode] Virtual environment not found. Please run setup."
-    echo "       Expected: $VENV_DIR"
-    exit 1
+# Auto-setup on first run if venv is missing
+if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
+    echo "======================================================"
+    echo "  [ncode] First run detected! Setting up environment..."
+    echo "======================================================"
+    bash "$SCRIPT_DIR/setup.sh" --all
 fi
 
-# Wayland/X11 auto-detection
+# Activate virtual environment
+source "$VENV_DIR/bin/activate"
+
+# Wayland / X11 auto-detection
 if [[ -n "${WAYLAND_DISPLAY:-}" || "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
     export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
 else
