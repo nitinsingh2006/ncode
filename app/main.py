@@ -1049,6 +1049,8 @@ class NitinEditor(QMainWindow):
             try:
                 self._chatbot_panel = ChatbotPanel()
                 self._chatbot_panel.insert_to_editor.connect(self._chatbot_insert_to_editor)
+                self._chatbot_panel.insert_and_run.connect(self._chatbot_insert_and_run)
+                self._chatbot_panel.run_in_terminal.connect(self._chatbot_run_terminal_command)
                 self._h_splitter.addWidget(self._chatbot_panel)
                 self._chatbot_panel.setVisible(False)   # hidden until toggled
                 self._chatbot_panel.setMinimumWidth(280)
@@ -1229,16 +1231,42 @@ class NitinEditor(QMainWindow):
         else:
             self._chatbot_panel.update_context("", "", "")
 
-    def _chatbot_insert_to_editor(self, code: str) -> None:
-        """Insert AI-generated code into the current editor tab (only on user request via → Editor button)."""
+    def _chatbot_insert_to_editor(self, code: str, lang: str = "") -> None:
+        """Insert AI-generated code into the active editor tab."""
         editor = self._current_editor()
+        if editor is None:
+            self._new_tab()
+            editor = self._current_editor()
         if editor is None:
             return
         if hasattr(editor, "set_text"):
             editor.set_text(code)
         elif hasattr(editor, "setPlainText"):
             editor.setPlainText(code)
+
+        # Switch language if valid
+        if lang:
+            for known in LANGUAGES:
+                if known.lower() == lang.lower():
+                    self._on_language_changed(known)
+                    self._lang_combo.blockSignals(True)
+                    self._lang_combo.setCurrentText(known)
+                    self._lang_combo.blockSignals(False)
+                    break
         self._set_status("💬 Code inserted from AI Chatbot into editor")
+
+    def _chatbot_insert_and_run(self, code: str, lang: str = "") -> None:
+        """Insert AI code into editor and run it immediately."""
+        self._chatbot_insert_to_editor(code, lang)
+        self._run_code()
+
+    def _chatbot_run_terminal_command(self, cmd: str) -> None:
+        """Execute a shell command from chatbot in the integrated terminal."""
+        self._show_terminal_panel()
+        lines = [line.strip() for line in cmd.strip().splitlines() if line.strip() and not line.strip().startswith("#")]
+        for line in lines:
+            self._on_terminal_input_submitted(line)
+        self._set_status(f"⚡ Terminal executed: {cmd.strip()[:40]}")
 
     def _dsa_open_question(self, question: "Question") -> None:  # type: ignore[name-defined]
         """Open a DSA question in a new editor tab."""

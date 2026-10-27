@@ -105,6 +105,12 @@ GitHub: https://github.com/nitinsingh2006/ncode
 **Code Block Buttons (in this chatbot):**
 - ⧉ Copy — copies code to clipboard
 - → Editor — inserts code directly into the current open editor tab
+- ▶ Run Code — inserts code into editor AND runs it immediately with 1 click
+- ⚡ Run in Terminal — runs terminal commands in ncode's integrated terminal with 1 click
+
+CRITICAL FORMATTING RULES:
+1. When providing code, ALWAYS wrap it in complete standard ```language ... ``` code blocks.
+2. When suggesting ANY command (like `pip install pygame`, `sudo apt install ...`, git, etc.), ALWAYS put it inside its own ```bash ... ``` code block! Do NOT write install commands in plain prose without code blocks. This enables the user to click '⚡ Run in Terminal' to run it automatically!
 
 == YOUR CAPABILITIES ==
 When the user asks you to:
@@ -138,7 +144,7 @@ class _GroqWorker(QObject):
                 "model": _GROQ_MODEL,
                 "messages": self._messages,
                 "temperature": 0.7,
-                "max_tokens": 1024,
+                "max_tokens": 4096,
             }
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
@@ -172,11 +178,15 @@ class _GroqWorker(QObject):
             self.errored.emit(f"❌ Error: {e}")
 
 
-# ── Code Block Widget (with copy button) ──────────────────────────────────────
+# ── Code Block Widget (with copy, insert, and terminal runner) ───────────────
 class _CodeBlockWidget(QWidget):
     """
     Renders a single fenced code block with:
-    - A header bar showing the language name + copy button + insert-to-editor button
+    - Language tag + action buttons in header bar:
+      - '⚡ Run in Terminal' for bash/pip/shell commands
+      - '→ Editor' to paste into the active tab
+      - '▶ Run Code' to paste AND immediately run in editor
+      - '⧉ Copy' to copy to clipboard
     - A read-only QPlainTextEdit showing the code
     """
 
@@ -184,12 +194,17 @@ class _CodeBlockWidget(QWidget):
         self,
         code: str,
         lang: str = "",
-        on_insert=None,          # callable(code: str) | None
+        on_insert=None,          # callable(code: str, lang: str) | None
+        on_run=None,             # callable(code: str, lang: str) | None
+        on_terminal=None,        # callable(cmd: str) | None
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._code = code
+        self._lang = lang
         self._on_insert = on_insert
+        self._on_run = on_run
+        self._on_terminal = on_terminal
         self._copied_timer: QTimer | None = None
         self._build(lang)
 
@@ -201,43 +216,83 @@ class _CodeBlockWidget(QWidget):
         # ── Header bar ──
         header = QFrame()
         header.setStyleSheet(
-            "QFrame { background:#11111b; border-radius:6px 6px 0 0; border:none; }"
+            "QFrame { background:#181825; border-radius:6px 6px 0 0; border-bottom:1px solid #313244; }"
         )
         hlay = QHBoxLayout(header)
-        hlay.setContentsMargins(10, 5, 8, 5)
+        hlay.setContentsMargins(10, 6, 8, 6)
+        hlay.setSpacing(6)
 
         lang_lbl = QLabel(lang.lower() if lang else "code")
-        lang_lbl.setStyleSheet("color:#6c7086; font-size:10px; font-family:monospace;")
+        lang_lbl.setStyleSheet("color:#a6adc8; font-size:11px; font-family:monospace; font-weight:bold;")
         hlay.addWidget(lang_lbl)
         hlay.addStretch()
 
-        # → Insert to Editor button (only if callback provided)
-        if self._on_insert is not None:
-            self._insert_btn = QPushButton("→ Editor")
-            self._insert_btn.setFixedHeight(22)
-            self._insert_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._insert_btn.setToolTip("Insert this code into the current editor tab")
-            self._insert_btn.setStyleSheet(
-                "QPushButton {"
-                "  background: transparent; color:#a6e3a1;"
-                "  border:1px solid #313244; border-radius:4px;"
-                "  padding: 0 8px; font-size:10px; font-weight:bold;"
-                "}"
-                "QPushButton:hover { background:#1a3a2a; color:#a6e3a1; }"
+        # Detect if this block is terminal commands
+        is_cmd = (
+            lang.lower() in ("bash", "sh", "shell", "terminal", "zsh", "cmd")
+            or any(
+                line.strip().startswith(("pip ", "pip3 ", "sudo ", "npm ", "cargo ", "git ", "apt ", "python3 -m pip "))
+                for line in self._code.splitlines() if line.strip() and not line.strip().startswith("#")
             )
-            self._insert_btn.clicked.connect(self._insert_to_editor)
-            hlay.addWidget(self._insert_btn)
+        )
 
-        self._copy_btn = QPushButton("⧉  Copy")
-        self._copy_btn.setFixedHeight(22)
+        if is_cmd:
+            if self._on_terminal is not None:
+                self._term_btn = QPushButton("⚡ Run in Terminal")
+                self._term_btn.setFixedHeight(24)
+                self._term_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._term_btn.setToolTip("Click to execute this command in ncode's integrated terminal automatically")
+                self._term_btn.setStyleSheet(
+                    "QPushButton {"
+                    "  background:#fab387; color:#11111b; border:none; border-radius:4px;"
+                    "  padding: 0 10px; font-size:11px; font-weight:bold;"
+                    "}"
+                    "QPushButton:hover { background:#f9c09b; }"
+                )
+                self._term_btn.clicked.connect(self._run_terminal_cmd)
+                hlay.addWidget(self._term_btn)
+        else:
+            # Code block: provide → Editor and ▶ Run Code buttons
+            if self._on_insert is not None:
+                self._insert_btn = QPushButton("→ Editor")
+                self._insert_btn.setFixedHeight(24)
+                self._insert_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._insert_btn.setToolTip("Insert this code into the active editor tab")
+                self._insert_btn.setStyleSheet(
+                    "QPushButton {"
+                    "  background:#a6e3a1; color:#11111b; border:none; border-radius:4px;"
+                    "  padding: 0 10px; font-size:11px; font-weight:bold;"
+                    "}"
+                    "QPushButton:hover { background:#b5e8b1; }"
+                )
+                self._insert_btn.clicked.connect(self._insert_to_editor)
+                hlay.addWidget(self._insert_btn)
+
+            if self._on_run is not None:
+                self._run_btn = QPushButton("▶ Run Code")
+                self._run_btn.setFixedHeight(24)
+                self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._run_btn.setToolTip("Insert into editor AND run immediately")
+                self._run_btn.setStyleSheet(
+                    "QPushButton {"
+                    "  background:#89b4fa; color:#11111b; border:none; border-radius:4px;"
+                    "  padding: 0 10px; font-size:11px; font-weight:bold;"
+                    "}"
+                    "QPushButton:hover { background:#99c1fc; }"
+                )
+                self._run_btn.clicked.connect(self._insert_and_run)
+                hlay.addWidget(self._run_btn)
+
+        # Copy button
+        self._copy_btn = QPushButton("⧉ Copy")
+        self._copy_btn.setFixedHeight(24)
         self._copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._copy_btn.setStyleSheet(
             "QPushButton {"
-            "  background: transparent; color:#89b4fa;"
-            "  border:1px solid #313244; border-radius:4px;"
-            "  padding: 0 8px; font-size:10px; font-weight:bold;"
+            "  background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;"
+            "  padding: 0 10px; font-size:11px; font-weight:bold;"
             "}"
-            "QPushButton:hover { background:#313244; color:#cdd6f4; }"
+            "QPushButton:hover { background:#45475a; }"
         )
         self._copy_btn.clicked.connect(self._copy_code)
         hlay.addWidget(self._copy_btn)
@@ -263,36 +318,37 @@ class _CodeBlockWidget(QWidget):
         code_edit.setFixedHeight(target_h)
         layout.addWidget(code_edit)
 
+    def _run_terminal_cmd(self) -> None:
+        if self._on_terminal:
+            self._on_terminal(self._code)
+            if hasattr(self, "_term_btn"):
+                self._term_btn.setText("✓ Running...")
+                QTimer.singleShot(2000, lambda: self._term_btn.setText("⚡ Run in Terminal") if hasattr(self, "_term_btn") else None)
+
     def _insert_to_editor(self) -> None:
         if self._on_insert:
-            self._on_insert(self._code)
+            self._on_insert(self._code, self._lang)
             if hasattr(self, "_insert_btn"):
-                old_style = self._insert_btn.styleSheet()
                 self._insert_btn.setText("✓ Inserted!")
-                self._insert_btn.setStyleSheet(
-                    "QPushButton{background:#a6e3a1;color:#1e1e2e;border:none;"
-                    "border-radius:4px;padding:0 8px;font-size:10px;font-weight:bold;}"
-                )
-                t = QTimer()
-                t.setSingleShot(True)
-                t.timeout.connect(lambda: (
-                    self._insert_btn.setText("→ Editor"),
-                    self._insert_btn.setStyleSheet(old_style),
-                ) if hasattr(self, "_insert_btn") else None)
-                t.start(2000)
-                self._insert_timer = t  # keep reference
+                QTimer.singleShot(2000, lambda: self._insert_btn.setText("→ Editor") if hasattr(self, "_insert_btn") else None)
+
+    def _insert_and_run(self) -> None:
+        if self._on_run:
+            self._on_run(self._code, self._lang)
+            if hasattr(self, "_run_btn"):
+                self._run_btn.setText("✓ Running...")
+                QTimer.singleShot(2000, lambda: self._run_btn.setText("▶ Run Code") if hasattr(self, "_run_btn") else None)
 
     def _copy_code(self) -> None:
         QGuiApplication.clipboard().setText(self._code)
-        self._copy_btn.setText("✓  Copied!")
+        self._copy_btn.setText("✓ Copied!")
         self._copy_btn.setStyleSheet(
             "QPushButton {"
             "  background:#a6e3a1; color:#1e1e2e;"
             "  border:none; border-radius:4px;"
-            "  padding: 0 8px; font-size:10px; font-weight:bold;"
+            "  padding: 0 10px; font-size:11px; font-weight:bold;"
             "}"
         )
-        # Reset after 2s
         if self._copied_timer:
             self._copied_timer.stop()
         self._copied_timer = QTimer()
@@ -301,14 +357,13 @@ class _CodeBlockWidget(QWidget):
         self._copied_timer.start(2000)
 
     def _reset_copy_btn(self) -> None:
-        self._copy_btn.setText("⧉  Copy")
+        self._copy_btn.setText("⧉ Copy")
         self._copy_btn.setStyleSheet(
             "QPushButton {"
-            "  background: transparent; color:#89b4fa;"
-            "  border:1px solid #313244; border-radius:4px;"
-            "  padding: 0 8px; font-size:10px; font-weight:bold;"
+            "  background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px;"
+            "  padding: 0 10px; font-size:11px; font-weight:bold;"
             "}"
-            "QPushButton:hover { background:#313244; color:#cdd6f4; }"
+            "QPushButton:hover { background:#45475a; }"
         )
 
 
@@ -319,10 +374,20 @@ class _BubbleWidget(QWidget):
     as a mix of QLabel (text) and _CodeBlockWidget (code blocks).
     """
 
-    def __init__(self, role: str, text: str, on_insert=None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        role: str,
+        text: str,
+        on_insert=None,
+        on_run=None,
+        on_terminal=None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._role = role
         self._on_insert = on_insert
+        self._on_run = on_run
+        self._on_terminal = on_terminal
         self._build(text)
 
     def _build(self, text: str) -> None:
@@ -331,7 +396,6 @@ class _BubbleWidget(QWidget):
         outer.setSpacing(0)
 
         if self._role == "user":
-            # Right-aligned purple bubble — wrap in HBox with stretch on left
             wrap = QHBoxLayout()
             wrap.setContentsMargins(30, 0, 0, 0)
             wrap.addStretch()
@@ -360,7 +424,6 @@ class _BubbleWidget(QWidget):
             return
 
         if self._role in ("system",):
-            # Centered subtle label
             lbl = QLabel(text)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setWordWrap(True)
@@ -385,7 +448,6 @@ class _BubbleWidget(QWidget):
         card_layout.setContentsMargins(14, 10, 14, 10)
         card_layout.setSpacing(6)
 
-        # Role label (small, above content)
         if self._role == "assistant":
             role_lbl = QLabel("🤖 AI")
             role_lbl.setStyleSheet(
@@ -403,11 +465,16 @@ class _BubbleWidget(QWidget):
             card_layout.addWidget(role_lbl)
 
         if self._role != "thinking":
-            # Parse text and code blocks, render in order
             segments = self._parse_segments(text)
             for kind, content, lang in segments:
                 if kind == "code":
-                    cb = _CodeBlockWidget(content, lang, on_insert=self._on_insert)
+                    cb = _CodeBlockWidget(
+                        content,
+                        lang,
+                        on_insert=self._on_insert,
+                        on_run=self._on_run,
+                        on_terminal=self._on_terminal,
+                    )
                     card_layout.addWidget(cb)
                 else:
                     if content.strip():
@@ -434,8 +501,13 @@ class _BubbleWidget(QWidget):
 
     @staticmethod
     def _parse_segments(text: str) -> list[tuple[str, str, str]]:
-        """Split text into alternating ('text', ..., '') and ('code', ..., lang) segments."""
-        pattern = re.compile(r"```(\w*)\n?(.*?)```", re.DOTALL)
+        """
+        Split text into alternating ('text', ..., '') and ('code', ..., lang) segments.
+        Handles:
+        - Closed ```lang\ncode``` or '''lang\ncode'''
+        - Unclosed / truncated ```lang\ncode (when token limit reached before closing)
+        """
+        pattern = re.compile(r"(?:`{3}|\x27{3})(\w*)\n?(.*?)(?:`{3}|\x27{3})", re.DOTALL)
         segments: list[tuple[str, str, str]] = []
         last = 0
         for m in pattern.finditer(text):
@@ -445,8 +517,19 @@ class _BubbleWidget(QWidget):
             code = m.group(2)
             segments.append(("code", code, lang))
             last = m.end()
-        if last < len(text):
-            segments.append(("text", text[last:], ""))
+
+        # Check for unclosed fence at the end of the text (e.g. if response was truncated)
+        rem = text[last:]
+        m_unclosed = re.search(r"(?:`{3}|\x27{3})(\w*)\n?(.*)", rem, re.DOTALL)
+        if m_unclosed and m_unclosed.group(2).strip():
+            pre = rem[:m_unclosed.start()]
+            if pre.strip():
+                segments.append(("text", pre, ""))
+            lang = m_unclosed.group(1).strip()
+            code = m_unclosed.group(2)
+            segments.append(("code", code, lang))
+        elif rem:
+            segments.append(("text", rem, ""))
         return segments
 
     @staticmethod
@@ -455,15 +538,12 @@ class _BubbleWidget(QWidget):
 
     @staticmethod
     def _render_inline(s: str) -> str:
-        """Render inline `code` and **bold**."""
-        # Inline code
         s = re.sub(
             r"`([^`]+)`",
             r'<code style="background:#313244;color:#f38ba8;padding:1px 5px;'
             r'border-radius:3px;font-size:11px;">\1</code>',
             s,
         )
-        # Bold
         s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
         return s
 
@@ -473,10 +553,15 @@ class ChatbotPanel(QWidget):
     """
     Side-panel Groq chatbot.
     Call `update_context(code, filename, language)` whenever the active tab changes.
-    Connect `insert_to_editor` signal to insert AI code into the editor on demand.
+    Signals:
+    - insert_to_editor(code, lang): insert into editor tab
+    - insert_and_run(code, lang): insert and trigger run
+    - run_in_terminal(cmd): execute command in terminal
     """
 
-    insert_to_editor = Sig(str)   # emitted when user clicks '→ Editor' on a code block
+    insert_to_editor = Sig(str, str)
+    insert_and_run   = Sig(str, str)
+    run_in_terminal  = Sig(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -862,7 +947,13 @@ class ChatbotPanel(QWidget):
 
     def _append_bubble(self, role: str, text: str) -> None:
         """Create a _BubbleWidget and insert it before the trailing stretch."""
-        bubble = _BubbleWidget(role, text, on_insert=self.insert_to_editor.emit)
+        bubble = _BubbleWidget(
+            role,
+            text,
+            on_insert=self.insert_to_editor.emit,
+            on_run=self.insert_and_run.emit,
+            on_terminal=self.run_in_terminal.emit,
+        )
         if role == "thinking":
             self._thinking_widget = bubble
 
