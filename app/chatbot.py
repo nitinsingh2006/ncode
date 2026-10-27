@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 # ── Groq config (same as rest of app) ────────────────────────────────────────
 _GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
-_GROQ_MODEL = "llama-3.3-70b-versatile"
+_GROQ_MODEL = "qwen/qwen3.8-27b"
 
 _SYSTEM_PROMPT = (
     "You are a helpful coding assistant embedded inside 'ncode' — a desktop code editor. "

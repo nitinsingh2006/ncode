@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 # Reuse API config from the transpiler
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.3-70b-versatile"   # fast + accurate for code review
+GROQ_MODEL   = "qwen/qwen3.8-27b"   # fast + accurate for code review
 
 
 @dataclass
