@@ -55,6 +55,13 @@ from app.terminal.console import TerminalConsole
 # AI Transpiler
 from app.ai_transpiler import transpile_async, can_transpile
 
+# Live Chatbot
+try:
+    from app.chatbot import ChatbotPanel
+    _HAS_CHATBOT = True
+except ImportError:
+    _HAS_CHATBOT = False
+
 # DSA Practice
 try:
     from app.dsa.panel import DSAPanel
@@ -682,6 +689,9 @@ class NitinEditor(QMainWindow):
         self._active_dsa_question: "Question | None" = None   # currently open question
         self._dsa_checking: bool = False   # guard: one check at a time
 
+        # Live Chatbot state
+        self._chatbot_panel: "ChatbotPanel | None" = None
+
         self._setup_window()
         self._build_ui()
         self._apply_settings()
@@ -851,6 +861,11 @@ class NitinEditor(QMainWindow):
             dsa_menu.addSeparator()
             self._add_menu_action(dsa_menu, "↻  &Refresh Questions", self._dsa_refresh)
 
+        # Live Chatbot
+        if _HAS_CHATBOT:
+            chat_menu = mb.addMenu("💬 &Chat")
+            self._add_menu_action(chat_menu, "Toggle &Chatbot", self._chatbot_toggle, "Ctrl+Shift+I")
+
         # Help
         help_menu = mb.addMenu("&Help")
         self._add_menu_action(help_menu, "&About",           self._show_about)
@@ -956,6 +971,24 @@ class NitinEditor(QMainWindow):
         tb.addWidget(self._dsa_submit_btn)
 
         tb.addSeparator()
+
+        # Chatbot toggle button
+        if _HAS_CHATBOT:
+            self._chatbot_btn = QPushButton("💬 Chat")
+            self._chatbot_btn.setCheckable(True)
+            self._chatbot_btn.setStyleSheet(
+                "QPushButton { background:#313244; color:#cba6f7; border:none; "
+                "border-radius:5px; padding:6px 14px; font-size:12px; font-weight:bold; }"
+                "QPushButton:hover { background:#45475a; }"
+                "QPushButton:checked { background:#cba6f7; color:#1e1e2e; }"
+            )
+            self._chatbot_btn.setToolTip("Toggle AI Chatbot panel (Ctrl+Shift+I)")
+            self._chatbot_btn.clicked.connect(self._chatbot_toggle)
+            tb.addWidget(self._chatbot_btn)
+        else:
+            self._chatbot_btn = None
+
+        tb.addSeparator()
         tb.addAction(tb_action("⚙", self._show_settings, tip="Preferences"))
 
     def _build_central(self) -> None:
@@ -1010,7 +1043,18 @@ class NitinEditor(QMainWindow):
 
         editor_vbox.addWidget(self._v_splitter)
         self._h_splitter.addWidget(editor_area)
-        self._h_splitter.setSizes([280, 1000])
+
+        # Chatbot panel (right side, hidden by default)
+        if _HAS_CHATBOT:
+            try:
+                self._chatbot_panel = ChatbotPanel()
+                self._h_splitter.addWidget(self._chatbot_panel)
+                self._chatbot_panel.setVisible(False)   # hidden until toggled
+                self._chatbot_panel.setMinimumWidth(280)
+            except Exception:
+                self._chatbot_panel = None
+
+        self._h_splitter.setSizes([280, 1000, 0])
 
         root.addWidget(self._h_splitter)
 
@@ -1141,6 +1185,48 @@ class NitinEditor(QMainWindow):
         if self._dsa_panel is not None:
             self._dsa_panel.refresh()
             self._set_status("DSA questions refreshed")
+
+    def _chatbot_toggle(self) -> None:
+        """Show/hide the live chatbot panel (right side)."""
+        if self._chatbot_panel is None:
+            return
+        visible = not self._chatbot_panel.isVisible()
+        self._chatbot_panel.setVisible(visible)
+        # Sync toolbar button checked state
+        if hasattr(self, "_chatbot_btn") and self._chatbot_btn is not None:
+            self._chatbot_btn.setChecked(visible)
+        if visible:
+            sizes = self._h_splitter.sizes()
+            # Ensure chatbot gets ~320px; shrink editor slightly
+            total = sum(sizes)
+            chat_w = 320
+            dsa_w  = sizes[0] if len(sizes) > 0 else 0
+            ed_w   = max(total - dsa_w - chat_w, 400)
+            self._h_splitter.setSizes([dsa_w, ed_w, chat_w])
+            # Push API key + current tab context
+            api_key = (
+                self._settings.get("groq_api_key", "").strip()
+                or self._settings.get("gemini_api_key", "").strip()
+            )
+            self._chatbot_panel.set_api_key(api_key)
+            self._chatbot_sync_context()
+            self._set_status("💬 Chatbot opened (Ctrl+Shift+I to close)")
+        else:
+            self._set_status("💬 Chatbot closed")
+
+    def _chatbot_sync_context(self) -> None:
+        """Push current editor tab content to the chatbot panel."""
+        if self._chatbot_panel is None or not self._chatbot_panel.isVisible():
+            return
+        editor = self._current_editor()
+        state  = self._current_state()
+        if editor and state:
+            code = editor.toPlainText() if hasattr(editor, "toPlainText") else ""
+            fname = state.file_path.name if getattr(state, "file_path", None) else state.display_title
+            lang  = state.language
+            self._chatbot_panel.update_context(code, fname, lang)
+        else:
+            self._chatbot_panel.update_context("", "", "")
 
     def _dsa_open_question(self, question: "Question") -> None:  # type: ignore[name-defined]
         """Open a DSA question in a new editor tab."""
@@ -1463,6 +1549,8 @@ class NitinEditor(QMainWindow):
         editor.textChanged.connect(
             lambda: self._on_editor_modified(id(container))
         )
+        # Live-sync chatbot context when editor content changes
+        editor.textChanged.connect(self._chatbot_sync_context)
         if hasattr(editor, "cursor_position_changed"):
             editor.cursor_position_changed.connect(self._update_cursor_status)
         elif hasattr(editor, "cursorPositionChanged"):
@@ -1579,6 +1667,8 @@ class NitinEditor(QMainWindow):
             self._active_dsa_question = getattr(state, "dsa_question", None)
             if hasattr(self, "_dsa_submit_btn"):
                 self._dsa_submit_btn.setVisible(self._active_dsa_question is not None)
+        # Sync chatbot context whenever tab changes
+        self._chatbot_sync_context()
 
     def _on_editor_modified(self, cid: int) -> None:
         state = self._tab_states.get(cid)
@@ -2209,6 +2299,14 @@ class NitinEditor(QMainWindow):
 
         self._status_spaces.setText(f"Spaces: {tab_size}")
         self._update_status_bar()
+
+        # Push Groq API key to chatbot panel
+        if self._chatbot_panel is not None:
+            api_key = (
+                self._settings.get("groq_api_key", "").strip()
+                or self._settings.get("gemini_api_key", "").strip()
+            )
+            self._chatbot_panel.set_api_key(api_key)
 
     # ── Status helpers ────────────────────────────────────────────────────────
 
