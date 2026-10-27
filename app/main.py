@@ -1048,6 +1048,7 @@ class NitinEditor(QMainWindow):
         if _HAS_CHATBOT:
             try:
                 self._chatbot_panel = ChatbotPanel()
+                self._chatbot_panel.insert_to_editor.connect(self._chatbot_insert_to_editor)
                 self._h_splitter.addWidget(self._chatbot_panel)
                 self._chatbot_panel.setVisible(False)   # hidden until toggled
                 self._chatbot_panel.setMinimumWidth(280)
@@ -1227,6 +1228,17 @@ class NitinEditor(QMainWindow):
             self._chatbot_panel.update_context(code, fname, lang)
         else:
             self._chatbot_panel.update_context("", "", "")
+
+    def _chatbot_insert_to_editor(self, code: str) -> None:
+        """Insert AI-generated code into the current editor tab (only on user request via → Editor button)."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        if hasattr(editor, "set_text"):
+            editor.set_text(code)
+        elif hasattr(editor, "setPlainText"):
+            editor.setPlainText(code)
+        self._set_status("💬 Code inserted from AI Chatbot into editor")
 
     def _dsa_open_question(self, question: "Question") -> None:  # type: ignore[name-defined]
         """Open a DSA question in a new editor tab."""

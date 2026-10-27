@@ -91,13 +91,20 @@ class _GroqWorker(QObject):
 class _CodeBlockWidget(QWidget):
     """
     Renders a single fenced code block with:
-    - A header bar showing the language name + copy-to-clipboard button (top-right)
+    - A header bar showing the language name + copy button + insert-to-editor button
     - A read-only QPlainTextEdit showing the code
     """
 
-    def __init__(self, code: str, lang: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        lang: str = "",
+        on_insert=None,          # callable(code: str) | None
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._code = code
+        self._on_insert = on_insert
         self._copied_timer: QTimer | None = None
         self._build(lang)
 
@@ -118,6 +125,23 @@ class _CodeBlockWidget(QWidget):
         lang_lbl.setStyleSheet("color:#6c7086; font-size:10px; font-family:monospace;")
         hlay.addWidget(lang_lbl)
         hlay.addStretch()
+
+        # → Insert to Editor button (only if callback provided)
+        if self._on_insert is not None:
+            self._insert_btn = QPushButton("→ Editor")
+            self._insert_btn.setFixedHeight(22)
+            self._insert_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._insert_btn.setToolTip("Insert this code into the current editor tab")
+            self._insert_btn.setStyleSheet(
+                "QPushButton {"
+                "  background: transparent; color:#a6e3a1;"
+                "  border:1px solid #313244; border-radius:4px;"
+                "  padding: 0 8px; font-size:10px; font-weight:bold;"
+                "}"
+                "QPushButton:hover { background:#1a3a2a; color:#a6e3a1; }"
+            )
+            self._insert_btn.clicked.connect(self._insert_to_editor)
+            hlay.addWidget(self._insert_btn)
 
         self._copy_btn = QPushButton("⧉  Copy")
         self._copy_btn.setFixedHeight(22)
@@ -148,12 +172,30 @@ class _CodeBlockWidget(QWidget):
             "QScrollBar:horizontal { height:6px; background:#1e1e2e; }"
             "QScrollBar::handle:horizontal { background:#45475a; border-radius:3px; }"
         )
-        # Fit height to content (max 300px)
         lines = self._code.count("\n") + 1
         line_h = code_edit.fontMetrics().height()
         target_h = min(lines * line_h + 24, 300)
         code_edit.setFixedHeight(target_h)
         layout.addWidget(code_edit)
+
+    def _insert_to_editor(self) -> None:
+        if self._on_insert:
+            self._on_insert(self._code)
+            if hasattr(self, "_insert_btn"):
+                old_style = self._insert_btn.styleSheet()
+                self._insert_btn.setText("✓ Inserted!")
+                self._insert_btn.setStyleSheet(
+                    "QPushButton{background:#a6e3a1;color:#1e1e2e;border:none;"
+                    "border-radius:4px;padding:0 8px;font-size:10px;font-weight:bold;}"
+                )
+                t = QTimer()
+                t.setSingleShot(True)
+                t.timeout.connect(lambda: (
+                    self._insert_btn.setText("→ Editor"),
+                    self._insert_btn.setStyleSheet(old_style),
+                ) if hasattr(self, "_insert_btn") else None)
+                t.start(2000)
+                self._insert_timer = t  # keep reference
 
     def _copy_code(self) -> None:
         QGuiApplication.clipboard().setText(self._code)
@@ -192,9 +234,10 @@ class _BubbleWidget(QWidget):
     as a mix of QLabel (text) and _CodeBlockWidget (code blocks).
     """
 
-    def __init__(self, role: str, text: str, parent: QWidget | None = None) -> None:
+    def __init__(self, role: str, text: str, on_insert=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._role = role
+        self._on_insert = on_insert
         self._build(text)
 
     def _build(self, text: str) -> None:
@@ -279,7 +322,7 @@ class _BubbleWidget(QWidget):
             segments = self._parse_segments(text)
             for kind, content, lang in segments:
                 if kind == "code":
-                    cb = _CodeBlockWidget(content, lang)
+                    cb = _CodeBlockWidget(content, lang, on_insert=self._on_insert)
                     card_layout.addWidget(cb)
                 else:
                     if content.strip():
@@ -345,7 +388,10 @@ class ChatbotPanel(QWidget):
     """
     Side-panel Groq chatbot.
     Call `update_context(code, filename, language)` whenever the active tab changes.
+    Connect `insert_to_editor` signal to insert AI code into the editor on demand.
     """
+
+    insert_to_editor = Sig(str)   # emitted when user clicks '→ Editor' on a code block
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -574,7 +620,7 @@ class ChatbotPanel(QWidget):
 
     def _append_bubble(self, role: str, text: str) -> None:
         """Create a _BubbleWidget and insert it before the trailing stretch."""
-        bubble = _BubbleWidget(role, text)
+        bubble = _BubbleWidget(role, text, on_insert=self.insert_to_editor.emit)
         if role == "thinking":
             self._thinking_widget = bubble
 
