@@ -572,7 +572,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Note:** The `VALID_TOPICS` set includes topics that will be introduced in later batches. Tests that validate topic values will initially only check against existing topics, but the set is forward-compatible.
 
 ### Task 2: Create comment-block and starter code generation tests
-- [ ] **Task ID:** T2
+- [x] **Task ID:** T2
 - **Title:** Add `tests/test_dsa_starters.py` — Comment block + starter code tests
 - **Files touched:** CREATE `tests/test_dsa_starters.py`
 - **Instructions:**
@@ -923,3 +923,4 @@ EXECUTOR RULES:
 _(Executor: add dated entries here as tasks are completed)_
 
 2026-10-27 — T1: added DSA question-bank validation tests.
+2026-10-27 — T2: added DSA starter and comment-block tests.
