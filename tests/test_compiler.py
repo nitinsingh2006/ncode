@@ -127,11 +127,14 @@ def test_java_run():
     print("✓ Java execution")
 
 
-def test_html_run():
+def test_html_run(browser_launches):
     runner = CodeRunner()
     result = runner.run("HTML", "<h1>Hello HTML</h1>")
     assert result.exit_code == 0
     assert "default browser" in result.stdout
+    assert len(browser_launches) == 1
+    assert browser_launches[0].startswith("file:")
+    assert "Hello HTML" in Path(browser_launches[0][7:]).read_text()
     print("✓ HTML execution")
 
 
