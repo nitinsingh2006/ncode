@@ -658,6 +658,28 @@ QUESTIONS = [
     ("Missing Number", "Both", "Bit Manipulation", "Easy", 268, "Find the missing value from n distinct numbers drawn from 0 through n.", "Input: [3,0,1]\nOutput: 2\n\nInput: [0,1]\nOutput: 2", "1 <= n <= 10^4; values are distinct.", "O(n)", "O(1)", "xor,math"),
 ]
 
+# Rewrite the legacy imported wording while retaining each question's examples
+# and constraints as the executable specification.
+_LEGACY_TITLES = {question[0] for question in QUESTIONS[:61]}
+QUESTIONS = [
+    (title, source, topic, difficulty, lc_num,
+     (f"Develop an algorithm for {title}. Return the result required by the "
+      "input and output examples, while meeting the stated constraints." if title in _LEGACY_TITLES else problem),
+     examples, constraints, time_c, space_c, tags)
+    for title, source, topic, difficulty, lc_num, problem, examples, constraints,
+    time_c, space_c, tags in QUESTIONS
+]
+
+# Remaining classic Striver exercises not represented by the shared sheets.
+QUESTIONS.extend([
+    ("Rat in a Maze", "Striver", "Backtracking", "Medium", 0, "List every route from the top-left to bottom-right of a binary maze, moving only through open cells without revisiting one.", "Input: [[1,0],[1,1]]\nOutput: [DR]\n\nInput: [[1,0],[0,1]]\nOutput: []", "1 <= n <= 10; cells are 0 or 1.", "O(4^(n^2))", "O(n^2)", "backtracking,matrix"),
+    ("M-Coloring Problem", "Striver", "Graphs", "Medium", 0, "Decide whether every graph vertex can receive one of m colors so adjacent vertices differ.", "Input: triangle graph, m=3\nOutput: true\n\nInput: triangle graph, m=2\nOutput: false", "1 <= vertices <= 20; 1 <= m <= vertices.", "O(m^V)", "O(V)", "backtracking,graph"),
+    ("Job Sequencing Problem", "Striver", "Greedy", "Medium", 0, "Schedule unit-length jobs before their deadlines to maximize earned profit.", "Input: [(1,4),(1,1),(1,40)]\nOutput: 2 jobs, 44 profit\n\nInput: [(2,100)]\nOutput: 1 job, 100 profit", "1 <= jobs <= 10^5; deadlines and profits are positive.", "O(n log n)", "O(n)", "greedy,scheduling"),
+    ("Sudoku Solver", "Striver", "Backtracking", "Hard", 37, "Fill empty Sudoku cells so every row, column, and three-by-three box contains digits one through nine once.", "Input: valid partial 9x9 board\nOutput: completed board\n\nInput: solved board\nOutput: unchanged board", "Board is 9x9; empty cells use '.'.", "O(9^81) worst case", "O(81)", "backtracking,matrix"),
+    ("N Meetings in One Room", "Striver", "Greedy", "Medium", 0, "Choose the largest set of nonoverlapping meetings that fit in one room.", "Input: start=[1,3,0], end=[2,4,6]\nOutput: 2\n\nInput: start=[1], end=[2]\nOutput: 1", "1 <= n <= 10^5; start < end.", "O(n log n)", "O(n)", "greedy,intervals"),
+    ("Fractional Knapsack", "Striver", "Greedy", "Medium", 0, "Maximize value in a capacity-limited bag when fractions of an item may be selected.", "Input: values=[60,100,120], weights=[10,20,30], cap=50\nOutput: 240\n\nInput: values=[10], weights=[20], cap=10\nOutput: 5", "1 <= n <= 10^5; weights and values are positive.", "O(n log n)", "O(n)", "greedy,sorting"),
+])
+
 # These sheet-exclusive additions supplement Striver coverage; keeping them out
 # of NeetCode membership preserves the canonical 150-question NeetCode sheet.
 _STRIVER_ONLY_TITLES = {

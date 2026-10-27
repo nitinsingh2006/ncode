@@ -39,7 +39,7 @@ Practice **Striver's SDE Sheet** and **NeetCode 150** problems directly inside t
 6. On a correct verdict, save your solution locally — it reloads next time you open the question
 
 ### Question Bank
-- **187 questions**, including all **150 NeetCode** sheet questions
+- **193 questions**, including all **150 NeetCode** sheet questions
 - Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, Dynamic Programming, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation, Strings, Greedy, Tries, Intervals, Matrix, Design
 - Each question includes: problem statement, examples, constraints, required time/space complexity
 
@@ -137,7 +137,7 @@ ncode/
 │   │   ├── checker.py      # Groq AI solution checker
 │   │   ├── starters.py     # Language-specific starter code templates
 │   │   ├── panel.py        # DSA sidebar widget
-│   │   ├── seed_questions.py # Question bank seeder (187 questions)
+│   │   ├── seed_questions.py # Question bank seeder (193 questions)
 │   │   └── questions.db    # Bundled SQLite question bank
 │   ├── sql/
 │   │   ├── executor.py     # SQLite execution engine
