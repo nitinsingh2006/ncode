@@ -73,3 +73,9 @@ def test_lc_number_is_non_negative():
 
 def test_neetcode_sheet_has_150_questions():
     assert sum(q.source in {"NeetCode", "Both"} for q in get_all_questions()) == 150
+
+
+def test_statements_are_specific_and_substantive():
+    for question in get_all_questions():
+        assert "Develop an algorithm for" not in question.problem_statement
+        assert len(question.problem_statement) >= 80
