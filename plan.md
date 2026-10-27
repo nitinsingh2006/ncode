@@ -797,7 +797,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 9: Add question batch 7 — Dynamic Programming (Part 1)
-- [ ] **Task ID:** T9
+- [x] **Task ID:** T9
 - **Title:** Add ~18 questions: Dynamic Programming topics
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -930,3 +930,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T6: added and validated 15 Linked List and Stack questions (121 total).
 2026-10-27 — T7: added and validated 18 Trees and Tries questions (139 total).
 2026-10-27 — T8: added and validated 15 Graphs questions (154 total).
+2026-10-27 — T9: added and validated 18 Dynamic Programming questions (172 total).
