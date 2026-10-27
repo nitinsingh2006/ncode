@@ -10,9 +10,11 @@ just like ChatGPT / Claude web interface.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal as Sig, QObject, QThread, QTimer
 from PySide6.QtGui import QTextOption, QGuiApplication
@@ -488,6 +490,10 @@ class ChatbotPanel(QWidget):
         self._worker: _GroqWorker | None = None
         self._thinking_widget: _BubbleWidget | None = None
 
+        # Admin mode: lets Groq edit ncode codebase files
+        self._admin_mode: bool = False
+        self._ncode_root: Path = Path(__file__).resolve().parent.parent
+
         self._build_ui()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -527,6 +533,24 @@ class ChatbotPanel(QWidget):
         title.setStyleSheet("color:#cba6f7; font-weight:bold; font-size:13px;")
         hl.addWidget(title)
         hl.addStretch()
+
+        # Admin mode toggle button
+        self._admin_btn = QPushButton("🔧 Admin")
+        self._admin_btn.setFixedHeight(24)
+        self._admin_btn.setCheckable(True)
+        self._admin_btn.setToolTip(
+            "Admin Mode: Groq can read & edit ncode codebase files.\n"
+            "Always shows a confirmation dialog before any file is changed."
+        )
+        self._admin_btn.setStyleSheet(
+            "QPushButton{background:#313244;color:#fab387;border:1px solid #45475a;"
+            "border-radius:4px;padding:0 8px;font-size:11px;}"
+            "QPushButton:hover{background:#45475a;}"
+            "QPushButton:checked{background:#fab387;color:#1e1e2e;border:none;font-weight:bold;}"
+        )
+        self._admin_btn.clicked.connect(self._toggle_admin)
+        hl.addWidget(self._admin_btn)
+
         clear_btn = QPushButton("🗑 Clear")
         clear_btn.setFixedHeight(24)
         clear_btn.setStyleSheet(
@@ -639,6 +663,90 @@ class ChatbotPanel(QWidget):
         self._input.clear()
         self._send_message(text)
 
+    def _toggle_admin(self) -> None:
+        self._admin_mode = self._admin_btn.isChecked()
+        if self._admin_mode:
+            self._append_bubble(
+                "system",
+                "🔧 Admin Mode ON — Groq ab ncode ke files padh aur edit kar sakta hai.\n"
+                "Har edit se pehle confirmation dialog aayega.",
+            )
+        else:
+            self._append_bubble("system", "🔧 Admin Mode OFF.")
+
+    def _build_dsa_context(self) -> str:
+        """Load DSA solved/pending questions from DB and return summary string."""
+        try:
+            from app.dsa.bank import get_all_questions
+            from app.dsa.storage import get_solved_ids, get_topic_progress, get_sheet_progress
+            questions = get_all_questions()
+            solved_ids = get_solved_ids()
+            solved_qs  = [q for q in questions if q.id in solved_ids]
+            pending_qs = [q for q in questions if q.id not in solved_ids]
+            sheet_prog = get_sheet_progress(questions)
+            topic_prog = get_topic_progress(questions)
+
+            lines = [
+                f"\n\n== DSA PROGRESS (live data from user's DB) ==",
+                f"Total questions: {len(questions)} | Solved: {len(solved_qs)} | Pending: {len(pending_qs)}",
+                f"Striver SDE: {sheet_prog['Striver'][0]}/{sheet_prog['Striver'][1]} solved",
+                f"NeetCode 150: {sheet_prog['NeetCode'][0]}/{sheet_prog['NeetCode'][1]} solved",
+                "\nPer-topic progress:",
+            ]
+            for topic, (s, t) in sorted(topic_prog.items()):
+                lines.append(f"  {topic}: {s}/{t} solved")
+
+            if solved_qs:
+                lines.append("\nRecently solved (last 10):")
+                # Get solved with timestamps from storage
+                try:
+                    from app.dsa.storage import get_solution
+                    solved_with_time = []
+                    for q in solved_qs:
+                        sol = get_solution(q.id)
+                        if sol:
+                            solved_with_time.append((q, sol.saved_at))
+                    solved_with_time.sort(key=lambda x: x[1], reverse=True)
+                    for q, ts in solved_with_time[:10]:
+                        lines.append(f"  ✅ [{q.topic}] {q.title} ({q.difficulty}) — {ts[:10]}")
+                except Exception:
+                    for q in solved_qs[-10:]:
+                        lines.append(f"  ✅ [{q.topic}] {q.title} ({q.difficulty})")
+
+            if pending_qs:
+                lines.append(f"\nPending questions (first 20 of {len(pending_qs)}):")
+                for q in pending_qs[:20]:
+                    lines.append(f"  ⬜ [{q.topic}] {q.title} ({q.difficulty}, {q.source})")
+
+            return "\n".join(lines)
+        except Exception as e:
+            return f"\n\n[DSA data unavailable: {e}]"
+
+    def _build_admin_context(self) -> str:
+        """Build ncode file tree for admin mode context."""
+        try:
+            root = self._ncode_root
+            files = []
+            for p in sorted(root.rglob("*.py")):
+                rel = p.relative_to(root)
+                parts = rel.parts
+                if any(x in parts for x in (".venv", "__pycache__", ".git")):
+                    continue
+                files.append(str(rel))
+            tree = "\n  ".join(files[:60])
+            return (
+                f"\n\n== ADMIN MODE: ncode CODEBASE ==\n"
+                f"Root: {root}\n"
+                f"Key Python files:\n  {tree}\n\n"
+                "To edit a file, respond with a block in this EXACT format (nothing before/after):\n"
+                "```edit:relative/path/to/file.py\n<complete new file content here>\n```\n"
+                "IMPORTANT: Output the ENTIRE file content, not just the changed part.\n"
+                "Always explain what you changed and why, BEFORE the edit block.\n"
+                "The user will see a confirmation dialog before any file is saved."
+            )
+        except Exception as e:
+            return f"\n\n[Admin context error: {e}]"
+
     def _send_message(self, user_text: str) -> None:
         if self._busy:
             return
@@ -669,6 +777,13 @@ class ChatbotPanel(QWidget):
         else:
             context_parts.append("\n\nNo file is currently open in the editor.")
 
+
+        # Inject live DSA progress from user's DB
+        context_parts.append(self._build_dsa_context())
+
+        # Admin mode: inject codebase map + file edit instructions
+        if self._admin_mode:
+            context_parts.append(self._build_admin_context())
         messages = [{"role": "system", "content": "".join(context_parts)}]
         messages.extend(self._history[-20:])
         messages.append({"role": "user", "content": user_text})
@@ -693,6 +808,50 @@ class ChatbotPanel(QWidget):
         self._history.append({"role": "assistant", "content": text})
         self._append_bubble("assistant", text)
         self._set_busy(False)
+        # In admin mode, check if Groq wants to edit a file
+        if self._admin_mode:
+            self._process_admin_edits(text)
+
+    def _process_admin_edits(self, text: str) -> None:
+        """Parse Groq response for ```edit:path``` blocks and apply with confirmation."""
+        from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox, QPlainTextEdit as _PTE
+        pattern = re.compile(r"```edit:([^\n]+)\n(.*?)```", re.DOTALL)
+        for m in pattern.finditer(text):
+            rel_path = m.group(1).strip()
+            new_content = m.group(2)
+            full_path = self._ncode_root / rel_path
+
+            # Confirm dialog
+            dlg = QMessageBox()
+            dlg.setWindowTitle("🔧 Admin: File Edit Confirmation")
+            dlg.setIcon(QMessageBox.Icon.Warning)
+            dlg.setText(
+                f"<b>Groq wants to edit:</b><br><code>{rel_path}</code><br><br>"
+                f"Preview (first 20 lines):<br>"
+                f"<pre style='font-size:10px'>{chr(10).join(new_content.splitlines()[:20])}</pre>"
+            )
+            dlg.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            dlg.button(QMessageBox.StandardButton.Yes).setText("✅ Apply Edit")
+            dlg.button(QMessageBox.StandardButton.No).setText("❌ Skip")
+            dlg.setStyleSheet(
+                "QMessageBox{background:#1e1e2e;color:#cdd6f4;}"
+                "QLabel{color:#cdd6f4;}"
+            )
+            result = dlg.exec()
+            if result == QMessageBox.StandardButton.Yes:
+                try:
+                    full_path.parent.mkdir(parents=True, exist_ok=True)
+                    full_path.write_text(new_content, encoding="utf-8")
+                    self._append_bubble(
+                        "system",
+                        f"✅ File saved: `{rel_path}`\nRestart ncode to see changes take effect.",
+                    )
+                except Exception as e:
+                    self._append_bubble("error", f"❌ Could not save `{rel_path}`: {e}")
+            else:
+                self._append_bubble("system", f"⏭ Skipped edit for `{rel_path}`")
 
     def _on_error(self, msg: str) -> None:
         self._remove_thinking()
