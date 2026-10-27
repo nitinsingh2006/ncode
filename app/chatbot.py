@@ -14,7 +14,7 @@ import urllib.request
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal as Sig, QObject, QThread
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QFont, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QLineEdit, QPushButton, QLabel, QFrame,
@@ -176,7 +176,7 @@ class ChatbotPanel(QWidget):
             "  padding:8px;"
             "}"
         )
-        self._chat_display.setWordWrapMode(True)  # type: ignore[arg-type]
+        self._chat_display.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         layout.addWidget(self._chat_display, stretch=1)
 
         # ── Input area ──
