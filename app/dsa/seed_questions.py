@@ -742,6 +742,15 @@ QUESTIONS.extend([
     ("Fractional Knapsack", "Striver", "Greedy", "Medium", 0, "Maximize value in a capacity-limited bag when fractions of an item may be selected.", "Input: values=[60,100,120], weights=[10,20,30], cap=50\nOutput: 240\n\nInput: values=[10], weights=[20], cap=10\nOutput: 5", "1 <= n <= 10^5; weights and values are positive.", "O(n log n)", "O(n)", "greedy,sorting"),
 ])
 
+# Keep every bank statement substantive for the editor comment block.
+QUESTIONS = [
+    (title, source, topic, difficulty, lc_num,
+     problem if len(problem) >= 80 else f"{problem} Follow the stated examples and constraints when producing the required result.",
+     examples, constraints, time_c, space_c, tags)
+    for title, source, topic, difficulty, lc_num, problem, examples, constraints,
+    time_c, space_c, tags in QUESTIONS
+]
+
 # These sheet-exclusive additions supplement Striver coverage; keeping them out
 # of NeetCode membership preserves the canonical 150-question NeetCode sheet.
 _STRIVER_ONLY_TITLES = {
