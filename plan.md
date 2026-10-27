@@ -827,7 +827,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 11: Update README
-- [ ] **Task ID:** T11
+- [x] **Task ID:** T11
 - **Title:** Update README with final question count
 - **Files touched:** MODIFY `README.md`
 - **Instructions:**
@@ -932,3 +932,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T8: added and validated 15 Graphs questions (154 total).
 2026-10-27 — T9: added and validated 18 Dynamic Programming questions (172 total).
 2026-10-27 — T10: added and validated 15 remaining DP, Greedy, Design, Matrix, Math, Bit, and Heap questions (187 total).
+2026-10-27 — T11: updated README with the 187-question bank and new topics.

@@ -9,8 +9,7 @@ A private, fully local desktop code editor for Ubuntu Linux — with a built-in 
 - **Dark-themed** professional code editor with syntax highlighting for 29 languages
 - **Multi-tab** support with close/reopen tabs
 - **Runs code** for 25+ languages: Python, C, C++, Java, JavaScript, TypeScript, Go, Rust, and more
-- **AI Code Transpiler**: Switch language → code is automatically converted via Groq AI (< 3 seconds)
-- **HTML/CSS/JS Preview** — live in-editor preview panel with full JS support
+- **HTML/CSS/JS Runner & Preview** — 1-click execution in system default browser (Chrome/Firefox) with relative asset path support, plus live in-editor preview window
 - **SQL Support**: Execute SQL scripts locally using SQLite with formatted ASCII table output
 - **Integrated Terminal**: Execute real shell commands directly from the editor
 - **Safety Checks**: Confirmation for dangerous commands (`rm -rf`, `shutdown`, `dd`, etc.)
@@ -40,14 +39,22 @@ Practice **Striver's SDE Sheet** and **NeetCode 150** problems directly inside t
 6. On a correct verdict, save your solution locally — it reloads next time you open the question
 
 ### Question Bank
-- **61+ questions** across Striver's SDE Sheet and NeetCode 150
-- Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, DP, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation
+- **187 questions** across Striver's SDE Sheet and NeetCode 150
+- Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, Dynamic Programming, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation, Strings, Greedy, Tries, Intervals, Matrix, Design
 - Each question includes: problem statement, examples, constraints, required time/space complexity
 
 ### Progress Tracking
-- ✅ Green tick next to solved questions
-- Progress bar showing solved / total count
-- Per-difficulty and per-topic filtering
+- ✅ Green tick next to solved questions in the list
+- Overall progress counter (e.g. `Solved X / Total` and percentage)
+- Per-sheet progress indicators (Striver's SDE Sheet & NeetCode 150)
+- Per-topic progress counts on topic separators and in the **📊 Details** breakdown dialog
+- Filters by sheet, topic, difficulty (Easy/Medium/Hard), and solve status (Solved/Unsolved)
+
+### Saving & Re-editing Solutions
+- On receiving a correct verdict from Groq AI, a dialog prompts: *"Your solution is correct! Do you want to save this code with the question?"* with **Save** and **Skip** buttons.
+- On **Save**, your solution is persisted in local SQLite storage with language and timestamp.
+- Reopening the question loads both the problem statement comment header and your saved solution.
+- Solutions can be re-edited, re-checked, and overwritten at any time.
 
 ### Storage
 Solutions are saved locally at: `~/.config/nitin-editor/dsa_solutions.db`
@@ -130,7 +137,7 @@ ncode/
 │   │   ├── checker.py      # Groq AI solution checker
 │   │   ├── starters.py     # Language-specific starter code templates
 │   │   ├── panel.py        # DSA sidebar widget
-│   │   ├── seed_questions.py # Question bank seeder (61+ questions)
+│   │   ├── seed_questions.py # Question bank seeder (187 questions)
 │   │   └── questions.db    # Bundled SQLite question bank
 │   ├── sql/
 │   │   ├── executor.py     # SQLite execution engine
