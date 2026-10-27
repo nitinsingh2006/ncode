@@ -143,11 +143,16 @@ sudo apt install php-cli
 - Shortcut: `Ctrl+Shift+D` (toggle sidebar), `Ctrl+Shift+G` (check solution)
 
 ### 💬 Live AI Chatbot
-- Side panel chatbot powered by Groq
+- Side panel chatbot powered by Groq (`qwen/qwen3.8-27b`)
 - **Context-aware** — always sees the code in your current tab
 - Chat in **Hindi, English, or Hinglish**
 - User messages: right-aligned purple (ChatGPT style)
 - AI messages: left-aligned with green accent (Claude style)
+- **Interactive Code Blocks**:
+  - `⧉ Copy` button (top-right corner) with visual "✓ Copied!" feedback
+  - `→ Editor` button: inserts AI-generated code directly into your current editor tab on demand (never writes without your permission)
+- **📊 Live DSA Queries**: Ask the chatbot about your DSA progress anytime. It checks your local SQLite database live to report solved/pending questions, topics, and completion dates.
+- **🔧 Admin Mode**: Click the **🔧 Admin** button to let Groq inspect and edit the `ncode` codebase itself. Always prompts with an interactive diff confirmation dialog (`✅ Apply Edit` / `❌ Skip`) before saving any file!
 - Quick chips: `💡 Explain` / `🐛 Debug` / `⚡ Optimize`
 - Shortcut: `Ctrl+Shift+I` or toolbar `💬 Chat` button
 

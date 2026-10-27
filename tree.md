@@ -106,14 +106,15 @@ ncode/
 │   │                       #   transpile_async(): sends code + langs to Groq
 │   │                       #   Model: qwen/qwen3.8-27b
 │   │
-│   ├── chatbot.py          # ★ Live AI Chatbot panel — 489 lines
+│   ├── chatbot.py          # ★ Live AI Chatbot panel (Groq qwen/qwen3.8-27b)
 │   │                       #   ChatbotPanel(QWidget) — right-side panel
 │   │                       #   Always sees current tab's code (context-aware)
 │   │                       #   User msgs: right-aligned purple (ChatGPT style)
 │   │                       #   AI msgs: left-aligned green accent (Claude style)
+│   │                       #   Code blocks with '⧉ Copy' + '→ Editor' buttons
+│   │                       #   Live DSA querying (solved, pending, timestamps)
+│   │                       #   🔧 Admin Mode: edit codebase files with confirmation dlg
 │   │                       #   Quick chips: Explain / Debug / Optimize
-│   │                       #   History: last 20 msgs, max 200 lines of code sent
-│   │                       #   Model: qwen/qwen3.8-27b via Groq
 │   │                       #   Toggle: toolbar "💬 Chat" btn or Ctrl+Shift+I
 │   │
 │   ├── core/               # Shared utilities
