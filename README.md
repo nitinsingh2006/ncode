@@ -1,183 +1,227 @@
-# Nitin Editor (ncode)
+<h1 align="center">
+  <img src="assets/icon.png" width="64" alt="ncode icon"/><br/>
+  ncode — Nitin Editor
+</h1>
 
-A private, fully local desktop code editor for Ubuntu Linux — with a built-in **DSA Practice** mode, AI code checking, multi-language support, and integrated terminal.
+<p align="center">
+  A fully local desktop code editor for Linux — with DSA Practice, Live AI Chatbot, multi-language runner, integrated terminal, and SQL executor.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python"/>
+  <img src="https://img.shields.io/badge/PySide6-Qt6-green?style=flat-square&logo=qt"/>
+  <img src="https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux"/>
+  <img src="https://img.shields.io/badge/Tests-74%20passing-brightgreen?style=flat-square"/>
+  <img src="https://img.shields.io/badge/DSA-187%20questions-purple?style=flat-square"/>
+</p>
+
+---
+
+## ⚡ Quick Start (after cloning)
+
+```bash
+git clone https://github.com/nitinsingh2006/ncode.git
+cd ncode
+bash setup.sh      # one-time: creates venv + installs PySide6
+./run.sh           # launch the editor
+```
+
+> **That's it.** No database setup, no config files, no internet needed to start.
+
+---
+
+## ⚠️ What Won't Work Without Setup
+
+| Feature | Problem after clone | Fix |
+|---|---|---|
+| **App won't start** | PySide6 not installed | Run `bash setup.sh` once |
+| **DSA questions missing** | `questions.db` is gitignored | Auto-created on first launch ✅ |
+| **AI Chatbot** | No Groq API key | Add key in Settings → Preferences |
+| **DSA Check Solution** | No Groq API key | Same — add key in Settings |
+| **AI Transpiler** | No Groq API key | Same — add key in Settings |
+| **Compilers (C++, Java etc.)** | System tools not installed | Install per language (see below) |
+
+### Get a FREE Groq API key
+1. Go to → **https://console.groq.com**
+2. Sign up (free)
+3. Create API key
+4. In ncode: **Settings → Preferences → Groq API Key** → paste it → Save
+
+### Install language compilers (optional, per language you want to use)
+
+```bash
+# C / C++
+sudo apt install gcc g++
+
+# Java
+sudo apt install default-jdk
+
+# JavaScript / TypeScript (Node)
+sudo apt install nodejs npm
+npm install -g typescript
+
+# Go
+sudo apt install golang
+
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Ruby
+sudo apt install ruby
+
+# Kotlin
+sudo apt install kotlin
+
+# PHP
+sudo apt install php-cli
+```
+
+> Python 3, Bash, HTML/CSS, SQL — work out of the box, no install needed.
 
 ---
 
 ## ✨ Features
 
-- **Dark-themed** professional code editor with syntax highlighting for 29 languages
-- **Multi-tab** support with close/reopen tabs
-- **Runs code** for 25+ languages: Python, C, C++, Java, JavaScript, TypeScript, Go, Rust, and more
-- **HTML/CSS/JS Runner & Preview** — 1-click execution in system default browser (Chrome/Firefox) with relative asset path support, plus live in-editor preview window
-- **SQL Support**: Execute SQL scripts locally using SQLite with formatted ASCII table output
-- **Integrated Terminal**: Execute real shell commands directly from the editor
-- **Safety Checks**: Confirmation for dangerous commands (`rm -rf`, `shutdown`, `dd`, etc.)
-- **Find & Replace** dialog
-- **Settings** (theme, font, tab size, timeout, SQL mode, terminal preferences, API keys)
-- **Recent files** list
-- **No cloud, no account, no telemetry — fully local and offline** (except Groq API calls)
+### 🖊️ Code Editor
+- Syntax highlighting for **18+ languages** (Pygments-powered)
+- Multi-tab editor — open, close, reorder tabs freely
+- Line numbers, auto-indent, bracket matching
+- Find & Replace (`Ctrl+H`)
+- Font size zoom (`Ctrl++` / `Ctrl+-`)
+- Word wrap toggle
+
+### ▶️ Code Runner
+- Run code with `Ctrl+Enter` or `F5`
+- Supports: Python, C, C++, Java, JavaScript, TypeScript, Go, Rust, Ruby, Kotlin, Swift, PHP, Bash, R, Lua, Perl, Scala, SQL, HTML/CSS
+- Output appears in the **OUTPUT** panel at the bottom
+- Stop long-running programs with `Ctrl+Shift+C`
+
+### 🌐 HTML/CSS
+- Opens directly in your **default browser** (Chrome/Firefox)
+- In-editor **live preview** with `Ctrl+Shift+P`
+
+### 🗄️ SQL
+- Execute SQL scripts locally via **SQLite** (no server needed)
+- Results shown as formatted table in output panel
+
+### 💻 Integrated Terminal
+- Real bash terminal inside the editor
+- Safety prompts for dangerous commands (`rm -rf`, `shutdown`, etc.)
+- Command history
+
+### 🤖 AI Code Transpiler
+- Convert code from one language to another via Groq AI
+- Shortcut: `Ctrl+Shift+T`
+- Requires: Groq API key
+
+### 🧩 DSA Practice
+- **187 questions** — Striver's SDE Sheet + NeetCode 150
+- 21 topics: Arrays, Trees, DP, Graphs, Linked List, Binary Search, and more
+- Opens question in editor with: problem statement + starter code (11 languages)
+- AI checks your solution: verdict, issues, complexity, hint
+- Tracks solved questions with ✅ progress bars
+- Shortcut: `Ctrl+Shift+D` (toggle sidebar), `Ctrl+Shift+G` (check solution)
+
+### 💬 Live AI Chatbot
+- Side panel chatbot powered by Groq
+- **Context-aware** — always sees the code in your current tab
+- Chat in **Hindi, English, or Hinglish**
+- User messages: right-aligned purple (ChatGPT style)
+- AI messages: left-aligned with green accent (Claude style)
+- Quick chips: `💡 Explain` / `🐛 Debug` / `⚡ Optimize`
+- Shortcut: `Ctrl+Shift+I` or toolbar `💬 Chat` button
 
 ---
 
-## 🧩 DSA Practice
+## 🗂️ Project Structure
 
-Practice **Striver's SDE Sheet** and **NeetCode 150** problems directly inside the editor.
-
-### How to use
-1. Open the DSA sidebar via **🧩 DSA → Toggle Sidebar** (or `Ctrl+Shift+D`)
-2. Browse / search / filter by sheet, topic, difficulty, or solved status
-3. Click any question to open it in a new editor tab with:
-   - Full problem statement as a formatted comment block
-   - Language-specific starter code template
-4. Write your solution below the comment
-5. Click **🎯 Check Solution** (or `Ctrl+Shift+G`) — Groq AI reviews your code and returns:
-   - **Correct / Incorrect** verdict
-   - Issues and failing edge cases (if incorrect)
-   - Time & space complexity analysis
-   - A conceptual hint (not the full answer) if incorrect
-6. On a correct verdict, save your solution locally — it reloads next time you open the question
-
-### Question Bank
-- **193 questions**, including all **150 NeetCode** sheet questions
-- Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, Dynamic Programming, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation, Strings, Greedy, Tries, Intervals, Matrix, Design
-- Each question includes: problem statement, examples, constraints, required time/space complexity
-
-### Progress Tracking
-- ✅ Green tick next to solved questions in the list
-- Overall progress counter (e.g. `Solved X / Total` and percentage)
-- Per-sheet progress indicators (Striver's SDE Sheet & NeetCode 150)
-- Per-topic progress counts on topic separators and in the **📊 Details** breakdown dialog
-- Filters by sheet, topic, difficulty (Easy/Medium/Hard), and solve status (Solved/Unsolved)
-
-### Saving & Re-editing Solutions
-- On receiving a correct verdict from Groq AI, a dialog prompts: *"Your solution is correct! Do you want to save this code with the question?"* with **Save** and **Skip** buttons.
-- On **Save**, your solution is persisted in local SQLite storage with language and timestamp.
-- Reopening the question loads both the problem statement comment header and your saved solution.
-- Solutions can be re-edited, re-checked, and overwritten at any time.
-
-### Storage
-Solutions are saved locally at: `~/.config/nitin-editor/dsa_solutions.db`
-
----
-
-## 🚀 Launch
-
-```bash
-./run.sh           # Open editor
-./run.sh file.cpp  # Open a specific file
-```
-
----
-
-## 🌐 Supported Languages (29)
-
-| Category | Languages |
-|----------|-----------|
-| Compiled | C, C++, Java, Rust, Go, Kotlin, Swift, C#, Scala, Dart |
-| Scripted | Python, JavaScript, TypeScript, Ruby, Perl, PHP, Bash |
-| ML/Data  | R, Julia |
-| Systems  | Zig, Elixir, Haskell, Lua |
-| Web/Data | HTML, CSS, SQL, JSON, YAML, Markdown |
-
----
-
-## ⌨️ Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+Enter / F5 | Run / Preview code |
-| Ctrl+N | New tab |
-| Ctrl+O | Open file |
-| Ctrl+S | Save |
-| Ctrl+Shift+S | Save As |
-| Ctrl+W | Close tab |
-| Ctrl+Z / Y | Undo / Redo |
-| Ctrl+F | Find |
-| Ctrl+H | Find & Replace |
-| Ctrl+Shift+T | Toggle Terminal Panel |
-| Ctrl+Shift+P | HTML/CSS Preview |
-| Ctrl+Shift+C | Stop execution |
-| **Ctrl+Shift+D** | **Toggle DSA Sidebar** |
-| **Ctrl+Shift+G** | **Check DSA Solution** |
-
----
-
-## 🧪 Testing
-
-```bash
-python tests/test_compiler.py        # Compiler & execution engine
-python tests/test_dsa_storage.py     # DSA solution storage layer
-python tests/test_dsa_checker.py     # DSA AI checker response parser
-python tests/test_sql.py             # SQL execution
-python tests/test_terminal.py        # Terminal runner
-python tests/test_runner_thread.py   # Background runner thread
-bash tests/test_languages.sh         # Multi-language shell tests
-```
-
----
-
-## 📁 Project Structure
+See [`tree.md`](tree.md) for the full annotated file map.
 
 ```
 ncode/
 ├── app/
-│   ├── main.py             # Main window & entry point
-│   ├── editor.py           # Code editor + 29 syntax highlighters
-│   ├── compiler.py         # Language execution engine (25+ languages)
-│   ├── runner.py           # Background execution thread
-│   ├── ai_transpiler.py    # AI code transpiler (Groq API)
-│   ├── preview.py          # HTML/CSS/JS live preview panel
-│   ├── settings.py         # Settings management
-│   ├── diagnostics.py      # Error diagnostics parser
-│   ├── dsa/
-│   │   ├── __init__.py
-│   │   ├── bank.py         # Question bank (SQLite reader + search)
-│   │   ├── storage.py      # Solution persistence & progress tracking
-│   │   ├── checker.py      # Groq AI solution checker
-│   │   ├── starters.py     # Language-specific starter code templates
-│   │   ├── panel.py        # DSA sidebar widget
-│   │   ├── seed_questions.py # Question bank seeder (193 questions)
-│   │   └── questions.db    # Bundled SQLite question bank
-│   ├── sql/
-│   │   ├── executor.py     # SQLite execution engine
-│   │   └── formatter.py    # ASCII result table formatter
-│   ├── terminal/
-│   │   ├── command_runner.py
-│   │   ├── command_reference.py
-│   │   ├── history.py
-│   │   └── safety.py
-│   └── ui/
-│       └── settings_dialog.py
-├── tests/
-│   ├── test_compiler.py
-│   ├── test_dsa_storage.py    # NEW
-│   ├── test_dsa_checker.py    # NEW
-│   ├── test_sql.py
-│   ├── test_terminal.py
-│   └── test_runner_thread.py
-├── requirements.txt
-├── run.sh
-├── setup.sh
-└── README.md
+│   ├── main.py          # Entry point — NitinEditor(QMainWindow)
+│   ├── editor.py        # CodeEditor with syntax highlighting
+│   ├── compiler.py      # Language configs + compilation
+│   ├── runner.py        # Background subprocess runner
+│   ├── chatbot.py       # Live AI Chatbot panel
+│   ├── ai_transpiler.py # Language transpiler via Groq
+│   ├── settings.py      # Settings load/save
+│   ├── dsa/             # DSA Practice module (187 questions)
+│   ├── sql/             # SQL executor
+│   ├── terminal/        # Integrated terminal
+│   └── ui/              # Settings dialog
+├── tests/               # 74 pytest tests (all passing)
+├── assets/              # App icons
+├── setup.sh             # One-time setup script
+├── run.sh               # Launch script
+├── tree.md              # Full project map for developers/AI
+└── requirements.txt     # PySide6>=6.6.0 (only dependency)
 ```
 
 ---
 
-## ⚙️ Configuration
+## ⌨️ Keyboard Shortcuts
 
-| File | Purpose |
-|------|---------|
-| `~/.config/nitin-editor/settings.json` | App settings |
-| `~/.config/nitin-editor/recent_files.json` | Recent files |
-| `~/.config/nitin-editor/terminal_history.json` | Terminal history |
-| `~/.config/nitin-editor/dsa_solutions.db` | DSA solutions & progress |
-
-> **API Key**: Set your Groq API key in Settings → Preferences. Get a free key at [console.groq.com](https://console.groq.com).
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Enter` / `F5` | Run code |
+| `Ctrl+Shift+C` | Stop execution |
+| `Ctrl+N` | New tab |
+| `Ctrl+O` | Open file |
+| `Ctrl+S` | Save |
+| `Ctrl+H` | Find & Replace |
+| `Ctrl+,` | Settings |
+| `Ctrl+Shift+D` | Toggle DSA sidebar |
+| `Ctrl+Shift+G` | Check DSA solution (AI) |
+| `Ctrl+Shift+T` | AI code transpiler |
+| `Ctrl+Shift+I` | Toggle AI Chatbot |
+| `Ctrl+Shift+P` | HTML preview |
+| `Ctrl++` / `Ctrl+-` | Zoom in/out |
 
 ---
 
-## License
+## 🧪 Running Tests
 
-MIT — see the LICENSE file.
+```bash
+source .venv/bin/activate
+python3 -m pytest tests/ -q
+# 74 passed
+```
 
+---
+
+## 🛠️ Requirements
+
+| Requirement | Version |
+|---|---|
+| OS | Linux (Ubuntu 20.04+) |
+| Python | 3.10+ |
+| PySide6 | >= 6.6.0 |
+| Groq API key | Free at console.groq.com |
+
+> **No other pip packages required.** All AI calls use Python stdlib `urllib`.
+
+---
+
+## 📁 Data Files (auto-created, never in git)
+
+| File | Location | What it stores |
+|---|---|---|
+| Settings | `~/.config/nitin-editor/settings.json` | Theme, font, API key, recent files |
+| Solutions | `~/.local/share/nitin-editor/solutions.db` | Your saved DSA solutions |
+| Questions DB | `app/dsa/questions.db` | Auto-seeded on first launch |
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repo
+2. `bash setup.sh`
+3. Make changes
+4. `python3 -m pytest tests/ -q` — all 74 must pass
+5. Open a PR
+
+---
+
+<p align="center">Made by <b>Nitin Singh</b> · <a href="https://github.com/nitinsingh2006/ncode">github.com/nitinsingh2006/ncode</a></p>
