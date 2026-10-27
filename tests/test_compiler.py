@@ -127,6 +127,14 @@ def test_java_run():
     print("✓ Java execution")
 
 
+def test_html_run():
+    runner = CodeRunner()
+    result = runner.run("HTML", "<h1>Hello HTML</h1>")
+    assert result.exit_code == 0
+    assert "default browser" in result.stdout
+    print("✓ HTML execution")
+
+
 if __name__ == "__main__":
     print("\n======================================================")
     print("  Nitin Editor — Compiler Tests")
@@ -143,6 +151,7 @@ if __name__ == "__main__":
         test_javascript_run,
         test_timeout,
         test_java_run,
+        test_html_run,
     ]
 
     failed = 0

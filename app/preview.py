@@ -22,8 +22,12 @@ except Exception:  # In case of missing lib or Wayland init failure
     HAS_WEBENGINE = False
 
 
-def open_in_default_browser(html_or_css: str, is_css: bool = False) -> str:
-    """Write HTML/CSS to a temporary file and open in the default browser."""
+def open_in_default_browser(
+    html_or_css: str,
+    is_css: bool = False,
+    file_path: Optional[Path] = None,
+) -> str:
+    """Write HTML/CSS to a file and open in the default browser."""
     if is_css:
         content = f"""<!DOCTYPE html>
 <html>
@@ -48,12 +52,23 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans
     else:
         content = html_or_css
 
-    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
-        f.write(content)
-        temp_path = f.name
+    if file_path is not None and str(file_path).strip():
+        resolved_path = Path(file_path).resolve()
+        try:
+            resolved_path.write_text(content, encoding="utf-8")
+            target_str = str(resolved_path)
+        except OSError:
+            with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+                f.write(content)
+                target_str = f.name
+    else:
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as f:
+            f.write(content)
+            target_str = f.name
 
-    webbrowser.open(f"file://{Path(temp_path).resolve()}")
-    return temp_path
+    target_path = Path(target_str).resolve()
+    webbrowser.open(target_path.as_uri())
+    return str(target_path)
 
 
 class PreviewPanel(QWidget):
@@ -62,6 +77,7 @@ class PreviewPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._current_html: str = ""
+        self._current_file_path: Optional[Path] = None
         self._is_css: bool = False
         self._webengine_view = None
         self._text_browser: Optional[QTextBrowser] = None
@@ -116,19 +132,33 @@ class PreviewPanel(QWidget):
 
     def _on_browser_clicked(self) -> None:
         if self._current_html:
-            open_in_default_browser(self._current_html, self._is_css)
+            open_in_default_browser(
+                self._current_html,
+                self._is_css,
+                file_path=self._current_file_path,
+            )
 
-    def render_html(self, html: str) -> None:
+    def render_html(self, html: str, file_path: Optional[Path] = None) -> None:
         """Render raw HTML content in the preview."""
         self._current_html = html
+        self._current_file_path = file_path
         self._is_css = False
+        base_url = (
+            QUrl.fromLocalFile(str(file_path.parent.resolve()) + "/")
+            if file_path and file_path.parent.exists()
+            else QUrl("about:blank")
+        )
         if self._webengine_view is not None:
             try:
-                self._webengine_view.setHtml(html, QUrl("about:blank"))
+                self._webengine_view.setHtml(html, base_url)
                 return
             except Exception:
                 pass
         if self._text_browser is not None:
+            try:
+                self._text_browser.document().setBaseUrl(base_url)
+            except Exception:
+                pass
             self._text_browser.setHtml(html)
 
     def render_html_with_css(self, html: str, css: str) -> None:

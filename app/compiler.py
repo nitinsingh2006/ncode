@@ -275,8 +275,18 @@ class CodeRunner:
             return result
 
         if language in ("HTML", "CSS"):
-            result.error_message = "PREVIEW"
-            return result
+            try:
+                from app.preview import open_in_default_browser
+                path = open_in_default_browser(code, is_css=(language == "CSS"), file_path=saved_path)
+                result.exit_code = 0
+                result.stdout = f"🌐 Opened {language} in default browser:\n    {path}\n"
+                if on_stdout:
+                    on_stdout(result.stdout)
+                return result
+            except Exception as e:
+                result.error_message = f"Could not launch browser for {language}: {e}"
+                result.exit_code = -1
+                return result
 
         temp_dir = self._make_temp_dir()
         try:
