@@ -809,7 +809,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 10: Add question batch 8 — DP Part 2 + Greedy + Remaining
-- [ ] **Task ID:** T10
+- [x] **Task ID:** T10
 - **Title:** Add ~15 questions: Remaining DP + Greedy + Design + Matrix + Math + Bit + Heap
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -931,3 +931,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T7: added and validated 18 Trees and Tries questions (139 total).
 2026-10-27 — T8: added and validated 15 Graphs questions (154 total).
 2026-10-27 — T9: added and validated 18 Dynamic Programming questions (172 total).
+2026-10-27 — T10: added and validated 15 remaining DP, Greedy, Design, Matrix, Math, Bit, and Heap questions (187 total).
