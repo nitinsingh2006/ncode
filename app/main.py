@@ -55,6 +55,18 @@ from app.terminal.console import TerminalConsole
 # AI Transpiler
 from app.ai_transpiler import transpile_async, can_transpile
 
+# DSA Practice
+try:
+    from app.dsa.panel import DSAPanel
+    from app.dsa.bank import Question, get_all_questions
+    from app.dsa.storage import init_solutions_db, save_solution, get_solution
+    from app.dsa.checker import check_solution_async, CheckResult
+    from app.dsa.starters import make_full_editor_content, SUPPORTED_LANGS as DSA_LANGS
+    from app.dsa.seed_questions import seed as seed_questions
+    _HAS_DSA = True
+except ImportError:
+    _HAS_DSA = False
+
 # Optional: preview
 try:
     from app.preview import PreviewPanel, HAS_WEBENGINE
@@ -71,6 +83,42 @@ except ImportError:
 
 ASSETS_DIR = _ROOT / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"
+
+
+def _extract_user_code(full_text: str, language: str) -> str:
+    """
+    Strip the DSA comment header block from editor content.
+    Returns only the user's solution code (everything after the header).
+    The header ends at the closing comment marker (\"\"\" for Python, last // ===... line for others).
+    """
+    import re
+    lines = full_text.splitlines()
+    if language == "Python":
+        # Find closing triple-quote after the opening one
+        in_block = False
+        end_idx = 0
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith('"""') and not in_block:
+                in_block = True
+                continue
+            if in_block and '"""' in line:
+                end_idx = i
+                break
+        if end_idx:
+            return "\n".join(lines[end_idx + 1:]).strip()
+    else:
+        # C-style: find the last line matching // ===...
+        end_idx = 0
+        for i, line in enumerate(lines):
+            if re.match(r"^//\s*={10,}", line.strip()):
+                end_idx = i
+        if end_idx:
+            return "\n".join(lines[end_idx + 1:]).strip()
+
+    # Fallback: return full text (no header found)
+    return full_text.strip()
+
 
 
 # ── Top-Level Worker Threads ──────────────────────────────────────────────────
@@ -628,6 +676,11 @@ class NitinEditor(QMainWindow):
         self._prev_language: str = "Python"   # language before the switch
         self._transpile_in_progress: bool = False  # guard against re-entrancy
 
+        # DSA Practice state
+        self._dsa_panel: "DSAPanel | None" = None
+        self._active_dsa_question: "Question | None" = None   # currently open question
+        self._dsa_checking: bool = False   # guard: one check at a time
+
         self._setup_window()
         self._build_ui()
         self._apply_settings()
@@ -788,6 +841,15 @@ class NitinEditor(QMainWindow):
         settings_menu = mb.addMenu("&Settings")
         self._add_menu_action(settings_menu, "⚙  Preferences…", self._show_settings)
 
+        # DSA Practice
+        if _HAS_DSA:
+            dsa_menu = mb.addMenu("🧩 &DSA")
+            self._add_menu_action(dsa_menu, "Toggle &Sidebar", self._dsa_toggle_sidebar, "Ctrl+Shift+D")
+            dsa_menu.addSeparator()
+            self._add_menu_action(dsa_menu, "🎯  &Check Solution", self._dsa_check_solution, "Ctrl+Shift+G")
+            dsa_menu.addSeparator()
+            self._add_menu_action(dsa_menu, "↻  &Refresh Questions", self._dsa_refresh)
+
         # Help
         help_menu = mb.addMenu("&Help")
         self._add_menu_action(help_menu, "&About",           self._show_about)
@@ -877,6 +939,22 @@ class NitinEditor(QMainWindow):
         tb.addWidget(self._browser_btn)
 
         tb.addSeparator()
+
+        # DSA submit button (only visible when a question is open)
+        self._dsa_submit_btn = QPushButton("🎯  Check Solution")
+        self._dsa_submit_btn.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 #8839ef,stop:1 #6c2da0); color:white; border:none; "
+            "border-radius:5px; padding:6px 14px; font-size:12px; font-weight:bold; }"
+            "QPushButton:hover { background:#9b4ff5; }"
+            "QPushButton:disabled { background:#313244; color:#585b70; border:none; }"
+        )
+        self._dsa_submit_btn.setToolTip("Check your DSA solution with AI (Ctrl+Shift+G)")
+        self._dsa_submit_btn.clicked.connect(self._dsa_check_solution)
+        self._dsa_submit_btn.setVisible(False)
+        tb.addWidget(self._dsa_submit_btn)
+
+        tb.addSeparator()
         tb.addAction(tb_action("⚙", self._show_settings, tip="Preferences"))
 
     def _build_central(self) -> None:
@@ -885,6 +963,27 @@ class NitinEditor(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # Horizontal splitter: DSA sidebar | editor area
+        self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # DSA sidebar (hidden by default)
+        if _HAS_DSA:
+            try:
+                seed_questions()          # no-op if already seeded
+                init_solutions_db()
+                self._dsa_panel = DSAPanel()
+                self._dsa_panel.question_selected.connect(self._dsa_open_question)
+                self._h_splitter.addWidget(self._dsa_panel)
+                self._dsa_panel.setVisible(False)   # hidden until toggled
+            except Exception as _e:
+                self._dsa_panel = None
+
+        # Editor + bottom panel (vertical)
+        editor_area = QWidget()
+        editor_vbox = QVBoxLayout(editor_area)
+        editor_vbox.setContentsMargins(0, 0, 0, 0)
+        editor_vbox.setSpacing(0)
 
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabsClosable(True)
@@ -900,13 +999,19 @@ class NitinEditor(QMainWindow):
         self._problems_panel = self._make_problems_panel()
         self._output_panel = self._make_output_panel()
         self._terminal_panel_widget = self._make_integrated_terminal_panel()
+        self._dsa_feedback_panel = self._make_dsa_feedback_panel()
         self._bottom_tabs.addTab(self._problems_panel, "PROBLEMS  0")
         self._bottom_tabs.addTab(self._output_panel, "OUTPUT")
         self._bottom_tabs.addTab(self._terminal_panel_widget, "TERMINAL")
+        self._bottom_tabs.addTab(self._dsa_feedback_panel, "🎯 DSA FEEDBACK")
         self._v_splitter.addWidget(self._bottom_tabs)
         self._v_splitter.setSizes([520, 200])
 
-        root.addWidget(self._v_splitter)
+        editor_vbox.addWidget(self._v_splitter)
+        self._h_splitter.addWidget(editor_area)
+        self._h_splitter.setSizes([280, 1000])
+
+        root.addWidget(self._h_splitter)
 
     def _make_problems_panel(self) -> QWidget:
         panel = QWidget()
@@ -967,9 +1072,314 @@ class NitinEditor(QMainWindow):
 
         return panel
 
+    def _make_dsa_feedback_panel(self) -> QWidget:
+        """Build the DSA AI feedback bottom panel."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header
+        hdr = QWidget()
+        hdr.setFixedHeight(34)
+        hdr.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #1a1a2e, stop:1 #1e1e2e);"
+            "border-bottom: 1px solid #313244;"
+        )
+        hbox = QHBoxLayout(hdr)
+        hbox.setContentsMargins(10, 0, 10, 0)
+        title_lbl = QLabel("🎯  DSA AI FEEDBACK")
+        title_lbl.setStyleSheet("color:#cba6f7; font-size:12px; font-weight:bold;")
+        hbox.addWidget(title_lbl)
+        hbox.addStretch()
+        clear_fb = QPushButton("Clear")
+        clear_fb.setStyleSheet(
+            "QPushButton{background:transparent;color:#6c7086;border:none;"
+            "font-size:11px;padding:2px 8px;}"
+            "QPushButton:hover{color:#cdd6f4;}"
+        )
+        clear_fb.clicked.connect(lambda: self._dsa_feedback_area.clear())
+        hbox.addWidget(clear_fb)
+        layout.addWidget(hdr)
+
+        self._dsa_feedback_area = QPlainTextEdit()
+        self._dsa_feedback_area.setReadOnly(True)
+        self._dsa_feedback_area.setStyleSheet(
+            "QPlainTextEdit {"
+            "  background:#0d0d1a; color:#cdd6f4; border:none; padding:10px;"
+            "  font-family:'JetBrains Mono','Fira Code','Consolas',monospace;"
+            "  font-size:12px; line-height:1.5;"
+            "}"
+        )
+        self._dsa_feedback_area.document().setMaximumBlockCount(2000)
+        self._dsa_feedback_area.setPlaceholderText(
+            "Open a DSA question and click '🎯 Check Solution' to see AI feedback here."
+        )
+        layout.addWidget(self._dsa_feedback_area)
+        return panel
+
+    # ── DSA Practice Actions ──────────────────────────────────────────────────
+
+    def _dsa_toggle_sidebar(self) -> None:
+        """Show/hide the DSA sidebar panel."""
+        if self._dsa_panel is None:
+            return
+        visible = not self._dsa_panel.isVisible()
+        self._dsa_panel.setVisible(visible)
+        if visible:
+            sizes = self._h_splitter.sizes()
+            if sizes[0] < 100:
+                self._h_splitter.setSizes([280, max(sizes[1], 800)])
+            self._dsa_panel.refresh()
+            self._set_status("DSA sidebar opened")
+        else:
+            self._set_status("DSA sidebar closed")
+
+    def _dsa_refresh(self) -> None:
+        if self._dsa_panel is not None:
+            self._dsa_panel.refresh()
+            self._set_status("DSA questions refreshed")
+
+    def _dsa_open_question(self, question: "Question") -> None:  # type: ignore[name-defined]
+        """Open a DSA question in a new editor tab."""
+        if not _HAS_DSA:
+            return
+
+        lang = self._lang_combo.currentText()
+        # Prefer a supported DSA language
+        if lang not in DSA_LANGS:
+            lang = "Python"
+
+        # Check for saved solution
+        try:
+            saved = get_solution(question.id)
+        except Exception:
+            saved = None
+
+        saved_code = saved.code if saved else ""
+        content = make_full_editor_content(question, lang, saved_code)
+
+        # Open in a new tab
+        tab_title = f"[DSA] {question.title}"
+        idx = self._new_tab(
+            title=tab_title,
+            language=lang,
+            code=content,
+        )
+
+        # Store active question state
+        self._active_dsa_question = question
+        self._dsa_submit_btn.setVisible(True)
+
+        self._lang_combo.blockSignals(True)
+        self._lang_combo.setCurrentText(lang)
+        self._lang_combo.blockSignals(False)
+
+        # Switch to the new tab
+        self._tab_widget.setCurrentIndex(idx)
+
+        if saved and saved.solved:
+            self._set_status(
+                f"✅ [{question.difficulty}] {question.title} — saved solution loaded"
+            )
+        else:
+            self._set_status(
+                f"🧩 [{question.difficulty}] {question.title} — write your solution!"
+            )
+
+        # Show DSA feedback tab
+        self._show_dsa_feedback_tab()
+        self._dsa_feedback_area.setPlainText(
+            f"📋  {question.title}\n"
+            f"{'─'*60}\n"
+            f"Topic:       {question.topic}\n"
+            f"Difficulty:  {question.difficulty}\n"
+            f"Source:      {question.source}\n"
+            f"LeetCode:    {'#' + str(question.lc_number) if question.lc_number else 'N/A'}\n"
+            f"Time req:    {question.time_complexity}\n"
+            f"Space req:   {question.space_complexity}\n"
+            f"{'─'*60}\n"
+            f"{'✅ Solved previously!' if (saved and saved.solved) else '⏳ Not yet solved — write your solution and click 🎯 Check Solution'}\n"
+        )
+
+    def _dsa_check_solution(self) -> None:
+        """Send current editor code + question to Groq for AI checking."""
+        if not _HAS_DSA:
+            return
+        if self._active_dsa_question is None:
+            self._set_status("⚠ Open a DSA question first (use the 🧩 DSA sidebar)")
+            return
+        if self._dsa_checking:
+            self._set_status("⚠ Already checking — please wait…")
+            return
+
+        api_key: str = (
+            self._settings.get("groq_api_key", "").strip()
+            or self._settings.get("gemini_api_key", "").strip()
+        )
+        if not api_key:
+            QMessageBox.warning(
+                self,
+                "No API Key",
+                "Please add your Groq API key in Settings → Preferences.\n"
+                "Get a free key at https://console.groq.com",
+            )
+            return
+
+        editor = self._current_editor()
+        if editor is None:
+            return
+
+        # Strip the comment header — everything before the first non-comment line
+        full_code = editor.toPlainText()
+        lang = self._lang_combo.currentText()
+        user_code = _extract_user_code(full_code, lang)
+
+        if not user_code.strip():
+            self._set_status("⚠ No solution code found — write your code below the comment block!")
+            return
+
+        q = self._active_dsa_question
+        self._dsa_checking = True
+        self._dsa_submit_btn.setEnabled(False)
+        self._show_dsa_feedback_tab()
+        self._dsa_feedback_area.setPlainText(
+            f"⏳ Checking your {lang} solution for:\n"
+            f"   {q.title}\n\n"
+            f"Sending to Groq AI… please wait (up to 30 s)…"
+        )
+        self._set_status(f"🎯 Checking solution for {q.title}…")
+
+        # Wire callbacks via Qt signal bridge (thread-safe)
+        from PySide6.QtCore import QObject, Signal as _Sig
+
+        class _Bridge(QObject):
+            success = _Sig(object)
+            error   = _Sig(str)
+
+        bridge = _Bridge(self)
+        bridge.success.connect(lambda r: self._dsa_on_check_done(r))
+        bridge.error.connect(lambda e: self._dsa_on_check_error(e))
+
+        check_solution_async(
+            question_title=q.title,
+            problem_statement=q.problem_statement,
+            constraints=q.constraints,
+            req_time=q.time_complexity,
+            req_space=q.space_complexity,
+            language=lang,
+            code=user_code,
+            api_key=api_key,
+            on_success=bridge.success.emit,
+            on_error=bridge.error.emit,
+        )
+
+    def _dsa_on_check_done(self, result: "CheckResult") -> None:  # type: ignore[name-defined]
+        """Handle AI check result on main thread."""
+        self._dsa_checking = False
+        self._dsa_submit_btn.setEnabled(True)
+        q = self._active_dsa_question
+        if q is None:
+            return
+
+        if result.verdict == "correct":
+            lines = [
+                f"✅  CORRECT SOLUTION — {q.title}",
+                "=" * 60,
+                f"  {result.message}",
+                "",
+                "  Complexity Analysis:",
+                f"  {result.complexity_note}",
+                "",
+                "━" * 60,
+                "  🎉 Great work! Your solution is accepted.",
+            ]
+            self._dsa_feedback_area.setPlainText("\n".join(lines))
+            self._set_status(f"✅ Correct! {q.title}")
+
+            # Offer to save
+            self._dsa_offer_save(q)
+
+        else:
+            issues_txt  = "\n".join(f"  • {i}" for i in result.issues) or "  (no specific issues listed)"
+            edges_txt   = "\n".join(f"  • {e}" for e in result.edge_cases) or "  (none listed)"
+            complexity  = "✅ Meets requirements" if result.complexity_ok else "⚠ Does NOT meet requirements"
+
+            lines = [
+                f"❌  INCORRECT SOLUTION — {q.title}",
+                "=" * 60,
+                f"  {result.message}",
+                "",
+                "  Issues:",
+                issues_txt,
+                "",
+                "  Failing Edge Cases:",
+                edges_txt,
+                "",
+                f"  Complexity: {complexity}",
+                f"  {result.complexity_note}",
+                "",
+                "━" * 60,
+                "  💡 Hint  (not the full solution):",
+                f"  {result.raw.split('hint')[1][:300] if 'hint' in result.raw.lower() else 'Keep thinking — you can do it!'}",
+            ]
+            self._dsa_feedback_area.setPlainText("\n".join(lines))
+            self._set_status(f"❌ Needs work — {q.title}")
+
+    def _dsa_on_check_error(self, msg: str) -> None:
+        self._dsa_checking = False
+        self._dsa_submit_btn.setEnabled(True)
+        self._dsa_feedback_area.setPlainText(
+            f"⚠  Error checking solution:\n\n{msg}\n\n"
+            f"Check your API key in Settings or your internet connection."
+        )
+        self._set_status(f"⚠ Check failed: {msg[:60]}")
+
+    def _dsa_offer_save(self, question: "Question") -> None:  # type: ignore[name-defined]
+        """Popup asking if the user wants to save their correct solution."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        lang = self._lang_combo.currentText()
+        full_code = editor.toPlainText()
+        user_code = _extract_user_code(full_code, lang)
+
+        reply = QMessageBox.question(
+            self,
+            "Save Solution?",
+            f"✅  Your solution for '{question.title}' is CORRECT!\n\n"
+            "Do you want to save this solution? It will be stored locally and "
+            "shown next time you open this question.",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard,
+            QMessageBox.StandardButton.Save,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            try:
+                save_solution(question.id, lang, user_code, solved=True)
+                if self._dsa_panel is not None:
+                    self._dsa_panel.mark_solved(question.id)
+                self._set_status(f"💾 Solution saved — {question.title}")
+                self._dsa_feedback_area.appendPlainText(
+                    "\n\n✅ Solution saved to local storage!"
+                )
+            except Exception as e:
+                QMessageBox.warning(self, "Save Error", f"Could not save solution:\n{e}")
+
+    def _show_dsa_feedback_tab(self) -> None:
+        """Switch the bottom panel to the DSA feedback tab."""
+        for i in range(self._bottom_tabs.count()):
+            if "DSA" in self._bottom_tabs.tabText(i):
+                self._bottom_tabs.setCurrentIndex(i)
+                if self._v_splitter.sizes()[1] < 80:
+                    self._v_splitter.setSizes([520, 220])
+                return
+
+
     def _build_status_bar(self) -> None:
         sb = QStatusBar()
         self.setStatusBar(sb)
+
 
         self._status_lang    = QLabel("Python")
         self._status_cursor  = QLabel("Ln 1, Col 1")

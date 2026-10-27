@@ -1,147 +1,176 @@
-# Nitin Editor
+# Nitin Editor (ncode)
 
-A private, fully local desktop code editor for Ubuntu Linux.
+A private, fully local desktop code editor for Ubuntu Linux — with a built-in **DSA Practice** mode, AI code checking, multi-language support, and integrated terminal.
 
-## Features
+---
 
-- **Dark-themed** professional code editor with syntax highlighting
+## ✨ Features
+
+- **Dark-themed** professional code editor with syntax highlighting for 29 languages
 - **Multi-tab** support with close/reopen tabs
-- **Runs code** for: Python, C, C++, Java, JavaScript, HTML, CSS, SQL
-- **SQL Language Support**: Execute SQL scripts locally using SQLite (`.sql`, `.db`, `.sqlite`, `.sqlite3`) with formatted ASCII table output
-- **Integrated Terminal**: Execute local shell commands directly from the editor
-- **Cross-Platform OS Modes**: 
-  - **Linux**: Real command execution via controlled local subprocess
-  - **Windows & macOS**: Educational preview & compatibility simulation mode (clearly marked when unavailable)
-- **Command Reference**: Educational cross-platform command equivalence reference
-- **Terminal History**: Persistent local command history (`~/.config/nitin-editor/terminal_history.json`)
-- **Safety Checks**: Confirmation dialog for dangerous system commands (`rm -rf /`, `mkfs`, `dd`, `shutdown`, `reboot`, etc.)
-- **Environment Info**: System environment inspector (kernel, shell, compilers, SQLite, runtime versions)
-- **Stdin input panel** for interactive programs
-- **Output panel** with stdout, stderr, exit code, execution time
-- **Stop button** to terminate hanging processes
-- **Execution timeout** (configurable, default 10s for code, 30s for terminal)
+- **Runs code** for 25+ languages: Python, C, C++, Java, JavaScript, TypeScript, Go, Rust, and more
+- **AI Code Transpiler**: Switch language → code is automatically converted via Groq AI (< 3 seconds)
+- **HTML/CSS/JS Preview** — live in-editor preview panel with full JS support
+- **SQL Support**: Execute SQL scripts locally using SQLite with formatted ASCII table output
+- **Integrated Terminal**: Execute real shell commands directly from the editor
+- **Safety Checks**: Confirmation for dangerous commands (`rm -rf`, `shutdown`, `dd`, etc.)
 - **Find & Replace** dialog
-- **Settings** dialog (theme, font, tab size, timeout, SQL mode, terminal preferences)
+- **Settings** (theme, font, tab size, timeout, SQL mode, terminal preferences, API keys)
 - **Recent files** list
-- **HTML/CSS preview** panel
-- **No cloud, no account, no telemetry, fully local and offline**
+- **No cloud, no account, no telemetry — fully local and offline** (except Groq API calls)
 
-> **Note on OS Modes**: Windows and macOS commands are not actually executed on those operating systems when Nitin Editor is running on Ubuntu. Nitin Editor never fabricates command output.
+---
 
-## Launch
+## 🧩 DSA Practice
 
-```bash
-ncode              # Open editor
-ncode file.cpp     # Open a specific file
-ncode file.sql     # Open SQL file (auto-detects language)
-```
+Practice **Striver's SDE Sheet** and **NeetCode 150** problems directly inside the editor.
 
-## Supported Languages & Tools
+### How to use
+1. Open the DSA sidebar via **🧩 DSA → Toggle Sidebar** (or `Ctrl+Shift+D`)
+2. Browse / search / filter by sheet, topic, difficulty, or solved status
+3. Click any question to open it in a new editor tab with:
+   - Full problem statement as a formatted comment block
+   - Language-specific starter code template
+4. Write your solution below the comment
+5. Click **🎯 Check Solution** (or `Ctrl+Shift+G`) — Groq AI reviews your code and returns:
+   - **Correct / Incorrect** verdict
+   - Issues and failing edge cases (if incorrect)
+   - Time & space complexity analysis
+   - A conceptual hint (not the full answer) if incorrect
+6. On a correct verdict, save your solution locally — it reloads next time you open the question
 
-| Language / Tool   | Extension | Runtime / Engine |
-|-------------------|-----------|------------------|
-| Python            | .py       | python3          |
-| C                 | .c        | gcc              |
-| C++               | .cpp .cc  | g++              |
-| Java              | .java     | javac + java     |
-| JavaScript        | .js       | node             |
-| SQL               | .sql      | Built-in SQLite  |
-| HTML              | .html     | Built-in Preview |
-| CSS               | .css      | Built-in Preview |
-| Linux Terminal    | N/A       | /bin/bash        |
-| macOS Terminal    | N/A       | Educational Ref  |
-| Windows Terminal  | N/A       | Educational Ref  |
+### Question Bank
+- **61+ questions** across Striver's SDE Sheet and NeetCode 150
+- Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, DP, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation
+- Each question includes: problem statement, examples, constraints, required time/space complexity
 
-## Shortcuts
+### Progress Tracking
+- ✅ Green tick next to solved questions
+- Progress bar showing solved / total count
+- Per-difficulty and per-topic filtering
 
-| Shortcut       | Action                   |
-|----------------|--------------------------|
-| Ctrl+Enter / F5| Run code                 |
-| Ctrl+N         | New tab                  |
-| Ctrl+O         | Open file                |
-| Ctrl+S         | Save                     |
-| Ctrl+Shift+S   | Save As                  |
-| Ctrl+W         | Close tab                |
-| Ctrl+Z / Y     | Undo / Redo              |
-| Ctrl+F         | Find                     |
-| Ctrl+H         | Find & Replace           |
-| Ctrl+Shift+T   | Toggle Terminal Panel    |
-| Ctrl+Shift+P   | HTML/CSS Preview         |
-| Ctrl+Shift+C   | Stop execution           |
+### Storage
+Solutions are saved locally at: `~/.config/nitin-editor/dsa_solutions.db`
 
-## Testing
+---
+
+## 🚀 Launch
 
 ```bash
-# Run unit & integration test suite
-./.venv/bin/python3 tests/test_compiler.py
-./.venv/bin/python3 tests/test_runner_thread.py
-./.venv/bin/python3 tests/test_sql.py
-./.venv/bin/python3 tests/test_terminal.py
-./.venv/bin/python3 tests/test_gui_headless.py
-bash tests/test_languages.sh
+./run.sh           # Open editor
+./run.sh file.cpp  # Open a specific file
 ```
 
-## Project Structure
+---
+
+## 🌐 Supported Languages (29)
+
+| Category | Languages |
+|----------|-----------|
+| Compiled | C, C++, Java, Rust, Go, Kotlin, Swift, C#, Scala, Dart |
+| Scripted | Python, JavaScript, TypeScript, Ruby, Perl, PHP, Bash |
+| ML/Data  | R, Julia |
+| Systems  | Zig, Elixir, Haskell, Lua |
+| Web/Data | HTML, CSS, SQL, JSON, YAML, Markdown |
+
+---
+
+## ⌨️ Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Enter / F5 | Run / Preview code |
+| Ctrl+N | New tab |
+| Ctrl+O | Open file |
+| Ctrl+S | Save |
+| Ctrl+Shift+S | Save As |
+| Ctrl+W | Close tab |
+| Ctrl+Z / Y | Undo / Redo |
+| Ctrl+F | Find |
+| Ctrl+H | Find & Replace |
+| Ctrl+Shift+T | Toggle Terminal Panel |
+| Ctrl+Shift+P | HTML/CSS Preview |
+| Ctrl+Shift+C | Stop execution |
+| **Ctrl+Shift+D** | **Toggle DSA Sidebar** |
+| **Ctrl+Shift+G** | **Check DSA Solution** |
+
+---
+
+## 🧪 Testing
+
+```bash
+python tests/test_compiler.py        # Compiler & execution engine
+python tests/test_dsa_storage.py     # DSA solution storage layer
+python tests/test_dsa_checker.py     # DSA AI checker response parser
+python tests/test_sql.py             # SQL execution
+python tests/test_terminal.py        # Terminal runner
+python tests/test_runner_thread.py   # Background runner thread
+bash tests/test_languages.sh         # Multi-language shell tests
+```
+
+---
+
+## 📁 Project Structure
 
 ```
 ncode/
 ├── app/
 │   ├── main.py             # Main window & entry point
-│   ├── editor.py           # Code editor widget & SQL syntax highlighter
-│   ├── compiler.py         # Language execution engine
+│   ├── editor.py           # Code editor + 29 syntax highlighters
+│   ├── compiler.py         # Language execution engine (25+ languages)
 │   ├── runner.py           # Background execution thread
-│   ├── preview.py          # HTML/CSS preview panel
+│   ├── ai_transpiler.py    # AI code transpiler (Groq API)
+│   ├── preview.py          # HTML/CSS/JS live preview panel
 │   ├── settings.py         # Settings management
-│   ├── sql/
+│   ├── diagnostics.py      # Error diagnostics parser
+│   ├── dsa/
 │   │   ├── __init__.py
+│   │   ├── bank.py         # Question bank (SQLite reader + search)
+│   │   ├── storage.py      # Solution persistence & progress tracking
+│   │   ├── checker.py      # Groq AI solution checker
+│   │   ├── starters.py     # Language-specific starter code templates
+│   │   ├── panel.py        # DSA sidebar widget
+│   │   ├── seed_questions.py # Question bank seeder (61+ questions)
+│   │   └── questions.db    # Bundled SQLite question bank
+│   ├── sql/
 │   │   ├── executor.py     # SQLite execution engine
 │   │   └── formatter.py    # ASCII result table formatter
 │   ├── terminal/
-│   │   ├── __init__.py
-│   │   ├── command_runner.py  # Shell subprocess runner
-│   │   ├── command_reference.py # Cross-platform command database
-│   │   ├── history.py      # Terminal command history manager
-│   │   └── safety.py       # Dangerous command detection
+│   │   ├── command_runner.py
+│   │   ├── command_reference.py
+│   │   ├── history.py
+│   │   └── safety.py
 │   └── ui/
 │       └── settings_dialog.py
-├── assets/
-│   ├── icon.png
-│   └── icon.svg
 ├── tests/
 │   ├── test_compiler.py
-│   ├── test_gui_headless.py
-│   ├── test_interactive.py
-│   ├── test_languages.sh
-│   ├── test_runner_thread.py
+│   ├── test_dsa_storage.py    # NEW
+│   ├── test_dsa_checker.py    # NEW
 │   ├── test_sql.py
-│   └── test_terminal.py
+│   ├── test_terminal.py
+│   └── test_runner_thread.py
 ├── requirements.txt
 ├── run.sh
 ├── setup.sh
 └── README.md
 ```
 
-## Configuration
+---
 
-Settings are stored in: `~/.config/nitin-editor/settings.json`
-Recent files: `~/.config/nitin-editor/recent_files.json`
-Terminal History: `~/.config/nitin-editor/terminal_history.json`
+## ⚙️ Configuration
 
-## Next Release
+| File | Purpose |
+|------|---------|
+| `~/.config/nitin-editor/settings.json` | App settings |
+| `~/.config/nitin-editor/recent_files.json` | Recent files |
+| `~/.config/nitin-editor/terminal_history.json` | Terminal history |
+| `~/.config/nitin-editor/dsa_solutions.db` | DSA solutions & progress |
 
-### Added
-- SQL language support with SQLite execution and ASCII result table formatting
-- Local SQLite database file opening and selection
-- Integrated Terminal panel (Ctrl+Shift+T)
-- Real Linux command execution via controlled subprocess
-- Windows command compatibility simulation mode
-- macOS command compatibility simulation mode
-- Educational cross-platform command reference table
-- Terminal command history with persistence (`~/.config/nitin-editor/terminal_history.json`)
-- Safety check confirmation dialog for dangerous commands
-- Environment Information inspector panel
-- Extended Settings dialog for SQL and Terminal options
+> **API Key**: Set your Groq API key in Settings → Preferences. Get a free key at [console.groq.com](https://console.groq.com).
+
+---
 
 ## License
 
 MIT — see the LICENSE file.
+
