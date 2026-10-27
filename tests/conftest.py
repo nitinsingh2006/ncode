@@ -7,7 +7,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def block_browser_launches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def browser_launches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Prevent tests from opening the user's browser and retain launch targets."""
     launches: list[str] = []
 
