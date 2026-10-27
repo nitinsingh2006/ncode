@@ -661,10 +661,31 @@ QUESTIONS = [
 # Rewrite the legacy imported wording while retaining each question's examples
 # and constraints as the executable specification.
 _LEGACY_TITLES = {question[0] for question in QUESTIONS[:61]}
+_LEGACY_STATEMENTS = {
+    "Two Sum": "Given integers nums and target, return the two distinct indices whose values total target. Exactly one valid pair exists, and an index may be used only once.",
+    "Best Time to Buy and Sell Stock": "Given daily stock prices, choose one day to buy and a later day to sell. Return the largest possible profit, or zero when no profitable sale exists.",
+    "Contains Duplicate": "Given an integer array, determine whether any value occurs more than once. Return false only when every array element is distinct.",
+    "Maximum Subarray": "Given an integer array, select one nonempty contiguous segment. Return the greatest sum obtainable from such a segment.",
+    "Product of Array Except Self": "For every position in nums, return the product of all values at other positions. Do not use division, and run in linear time.",
+    "Maximum Product Subarray": "Given an integer array, choose a nonempty contiguous segment. Return the largest product among all such segments.",
+    "Find Minimum in Rotated Sorted Array": "A strictly increasing array has been rotated. Return its smallest value using logarithmic-time search.",
+    "Search in Rotated Sorted Array": "A distinct sorted array may have been rotated. Return target's index when present, otherwise return -1, in logarithmic time.",
+    "3Sum": "Return every unique triple of distinct indices whose values add to zero. The returned collection must not contain duplicate value triples.",
+    "Container With Most Water": "Choose two vertical lines represented by height values. Return the greatest water area formed with the x-axis and those two lines.",
+    "Reverse Linked List": "Given the head of a singly linked list, reverse every next pointer. Return the head of the reversed list.",
+    "Linked List Cycle": "Given a linked-list head, determine whether following next pointers eventually revisits a node. Return true for a cycle and false otherwise.",
+    "Merge Two Sorted Lists": "Given the heads of two nondecreasing linked lists, splice their nodes into one sorted list. Return the merged list head.",
+    "Remove Nth Node From End of List": "Given a linked-list head and n, remove the node that is n positions from the tail. Return the resulting list head.",
+    "Merge K Sorted Lists": "Given k linked lists sorted in nondecreasing order, combine their nodes into one sorted list. Return its head.",
+    "Invert Binary Tree": "Given a binary-tree root, exchange every node's left and right children recursively or iteratively. Return the modified root.",
+    "Maximum Depth of Binary Tree": "Given a binary-tree root, return the number of nodes on its longest root-to-leaf path. An empty tree has depth zero.",
+    "Diameter of Binary Tree": "Given a binary tree, return the maximum number of edges on any path between two nodes. That path may or may not pass through the root.",
+    "Balanced Binary Tree": "Determine whether every binary-tree node has child subtree heights differing by at most one. Return whether the full tree is height balanced.",
+    "Binary Tree Level Order Traversal": "Given a binary-tree root, return node values grouped by depth from top to bottom. Values within a level appear from left to right.",
+}
 QUESTIONS = [
     (title, source, topic, difficulty, lc_num,
-     (f"Develop an algorithm for {title}. Return the result required by the "
-      "input and output examples, while meeting the stated constraints." if title in _LEGACY_TITLES else problem),
+     (_LEGACY_STATEMENTS.get(title, f"Solve the {title} task according to the provided examples and constraints.") if title in _LEGACY_TITLES else problem),
      examples, constraints, time_c, space_c, tags)
     for title, source, topic, difficulty, lc_num, problem, examples, constraints,
     time_c, space_c, tags in QUESTIONS
