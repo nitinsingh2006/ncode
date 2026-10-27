@@ -17,26 +17,31 @@
 
 ---
 
-## ⚡ 1-Line Install (Automatic Desktop Icon + Compilers)
+## 🚀 Installation & Quick Start
 
-To install **ncode** with everything set up automatically (desktop icon, compilers, dependencies):
+Choose either of the two hassle-free methods below:
+
+### 🌟 Solution 1: 1-Line Universal Installer *(Recommended)*
+
+Run this single command in your terminal. It sets up everything from start to finish without needing any manual configuration:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nitinsingh2006/ncode/main/install.sh | bash
 ```
 
-> **What this does automatically:**
-> 1. Clones the repository to `~/ncode`
-> 2. Sets up Python virtual environment + PySide6
-> 3. Checks and installs missing compilers (`g++`, `javac`, `rustc`, `node`)
-> 4. Creates a clickable **Desktop icon** (`~/Desktop/Nitin Editor.desktop`)
-> 5. Installs the terminal shortcut `ncode` into `~/.local/bin`
+#### What this command does automatically:
+1. **Clones the Code**: Clones the latest `ncode` repository into `~/ncode`.
+2. **Virtual Environment**: Automatically builds `.venv` and installs `PySide6`.
+3. **Auto-installs Compilers**: Detects and installs missing system compilers (`g++`, `build-essential`, `default-jdk`, `rustc`, `nodejs`).
+4. **Desktop Icon**: Creates an executable application launcher right on your desktop (`~/Desktop/Nitin Editor.desktop`).
+5. **System Integration**: Installs scalable icons into `~/.local/share/icons/hicolor/` and registers the app in your system Application Menu.
+6. **Global CLI Command**: Adds the `ncode` shortcut to `~/.local/bin/` so you can launch the editor simply by typing `ncode` from anywhere in your terminal.
 
 ---
 
-## ⚡ Manual Clone & Run
+### 💻 Solution 2: Git Clone with Auto-Setup *(Zero Extra Commands)*
 
-If you clone with `git`:
+If you prefer cloning via Git, you **do not** need to run any manual setup script. Simply clone and run:
 
 ```bash
 git clone https://github.com/nitinsingh2006/ncode.git
@@ -44,28 +49,25 @@ cd ncode
 ./run.sh
 ```
 
-> **Zero extra steps:** `./run.sh` detects first launch automatically, installs requirements, sets up the desktop icon, and launches the app!
+#### Why you don't need manual setup:
+- `./run.sh` has **built-in first-run detection**:
+  - If `.venv` is missing, it automatically triggers setup in the background.
+  - Installs all dependencies and compiles missing toolchains.
+  - Generates the desktop launcher and icon.
+  - Immediately launches the editor window.
 
 ---
 
-## ⚠️ What Won't Work Without Setup
+## 🔑 AI Features & API Key Setup
 
-| Feature | Problem after clone | Fix |
-|---|---|---|
-| **App won't start** | PySide6 not installed | Run `bash setup.sh` once |
-| **Compilers (C++, Java, Rust)** | Missing system tools | `bash setup.sh --compilers` installs them all automatically! |
-| **DSA questions missing** | `questions.db` is gitignored | Auto-created on first launch ✅ |
-| **AI Chatbot** | No Groq API key | Add key in Settings → Preferences |
-| **DSA Check Solution** | No Groq API key | Same — add key in Settings |
-| **AI Transpiler** | No Groq API key | Same — add key in Settings |
+**ncode is 100% offline and functional** for code editing, compiling, terminal, and DSA problem browsing without any keys.
 
-### Get a FREE Groq API key
-1. Go to → **https://console.groq.com**
-2. Sign up (free)
-3. Create API key
-4. In ncode: **Settings → Preferences → Groq API Key** → paste it → Save
+To enable the AI features (**Live AI Chatbot**, **DSA Solution Checker**, and **AI Transpiler**):
 
-### Install language compilers (optional, per language you want to use)
+1. Get a **free** API key from **[console.groq.com](https://console.groq.com)**.
+2. In ncode, open **Settings → Preferences** (or press `Ctrl+,`).
+3. Paste your key into the **Groq API Key** field and click **Save**.
+4. All AI capabilities will activate instantly!
 
 ```bash
 # C / C++
