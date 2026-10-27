@@ -730,7 +730,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 4: Add question batch 2 — Arrays + Two Pointers
-- [ ] **Task ID:** T4
+- [x] **Task ID:** T4
 - **Title:** Add ~15 questions: Arrays + Two Pointers topics
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -925,3 +925,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T1: added DSA question-bank validation tests.
 2026-10-27 — T2: added DSA starter and comment-block tests.
 2026-10-27 — T3: added and validated 15 Strings and Hashing questions (76 total).
+2026-10-27 — T4: added and validated 15 Arrays and Two Pointers questions (91 total).
