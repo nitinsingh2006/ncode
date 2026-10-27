@@ -69,3 +69,7 @@ def test_valid_topic_values():
 def test_lc_number_is_non_negative():
     for q in get_all_questions():
         assert q.lc_number >= 0, f"Question {q.id} ({q.title}) has negative lc_number"
+
+
+def test_neetcode_sheet_has_150_questions():
+    assert sum(q.source in {"NeetCode", "Both"} for q in get_all_questions()) == 150

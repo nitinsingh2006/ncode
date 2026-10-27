@@ -526,7 +526,7 @@ QUESTIONS = [
     ("Valid Anagram", "Both", "Strings", "Easy", 242, "Decide whether t can be made by rearranging every character of s exactly once.", "Input: s=anagram, t=nagaram\nOutput: true\n\nInput: s=rat, t=car\nOutput: false", "1 <= len(s), len(t) <= 5*10^4; lowercase letters.", "O(n)", "O(1)", "frequency,counting"),
     ("Longest Palindromic Substring", "Both", "Strings", "Medium", 5, "Return the longest contiguous part of s that reads identically in either direction.", "Input: s=babad\nOutput: bab\n\nInput: s=cbbd\nOutput: bb", "1 <= len(s) <= 1000; s contains letters and digits.", "O(n^2)", "O(1)", "expand-around-center"),
     ("Palindromic Substrings", "Both", "Strings", "Medium", 647, "Count every contiguous substring of s that is a palindrome.", "Input: s=abc\nOutput: 3\n\nInput: s=aaa\nOutput: 6", "1 <= len(s) <= 1000; lowercase letters.", "O(n^2)", "O(1)", "palindrome,center"),
-    ("Encode and Decode Strings", "NeetCode", "Strings", "Medium", 271, "Design reversible encoding for a list of arbitrary strings so boundaries are preserved.", "Input: [lint,code]\nOutput: decode(encode(...)) = [lint,code]\n\nInput: []\nOutput: []", "0 <= number of strings <= 200; strings may contain delimiter characters.", "O(total characters)", "O(total characters)", "design,length-prefix"),
+    ("Encode and Decode Strings", "Striver", "Strings", "Medium", 271, "Design reversible encoding for a list of arbitrary strings so boundaries are preserved.", "Input: [lint,code]\nOutput: decode(encode(...)) = [lint,code]\n\nInput: []\nOutput: []", "0 <= number of strings <= 200; strings may contain delimiter characters.", "O(total characters)", "O(total characters)", "design,length-prefix"),
     ("Longest Common Prefix", "Both", "Strings", "Easy", 14, "Find the longest opening sequence shared by every string in an array.", "Input: [flower,flow,flight]\nOutput: fl\n\nInput: [dog,racecar,car]\nOutput: ''", "1 <= number of strings <= 200; each length <= 200.", "O(total characters)", "O(1)", "strings,scanning"),
     ("String to Integer (atoi)", "Striver", "Strings", "Medium", 8, "Parse a signed decimal prefix from a string, discarding whitespace and clamping 32-bit overflow.", "Input: s='   -42'\nOutput: -42\n\nInput: s='4193 with words'\nOutput: 4193", "0 <= len(s) <= 200; printable ASCII.", "O(n)", "O(1)", "parsing,overflow"),
     ("Valid Sudoku", "Both", "Hashing", "Medium", 36, "Check that filled cells in a 9 by 9 board do not repeat a digit in any row, column, or 3 by 3 box.", "Input: valid partially filled board\nOutput: true\n\nInput: board with duplicate 8 in a row\nOutput: false", "board is 9x9; cells are '.' or digits 1 through 9.", "O(1)", "O(1)", "hash-set,matrix"),
@@ -656,6 +656,20 @@ QUESTIONS = [
     ("Find K Pairs with Smallest Sums", "NeetCode", "Heap", "Medium", 373, "Return k index pairs from sorted arrays having smallest pair sums.", "Input: [1,7,11],[2,4,6],k=3\nOutput: [[1,2],[1,4],[1,6]]\n\nInput: [1,1,2],[1,2,3],k=2\nOutput: [[1,1],[1,1]]", "Arrays <= 10^5; 1 <= k <= 10^4.", "O(k log k)", "O(k)", "heap,arrays"),
     ("Happy Number", "Both", "Math", "Easy", 202, "Determine whether repeatedly replacing n by digit-square sum eventually reaches one.", "Input: 19\nOutput: true\n\nInput: 2\nOutput: false", "1 <= n <= 2^31-1.", "O(log n)", "O(log n)", "math,hash-set"),
     ("Missing Number", "Both", "Bit Manipulation", "Easy", 268, "Find the missing value from n distinct numbers drawn from 0 through n.", "Input: [3,0,1]\nOutput: 2\n\nInput: [0,1]\nOutput: 2", "1 <= n <= 10^4; values are distinct.", "O(n)", "O(1)", "xor,math"),
+]
+
+# These sheet-exclusive additions supplement Striver coverage; keeping them out
+# of NeetCode membership preserves the canonical 150-question NeetCode sheet.
+_STRIVER_ONLY_TITLES = {
+    "Encode and Decode Strings", "Encode and Decode TinyURL", "Isomorphic Strings",
+    "Ransom Note", "Find All Anagrams in a String", "Squares of a Sorted Array",
+    "Find the Difference of Two Arrays", "Find Peak Element", "Time Based Key-Value Store",
+}
+QUESTIONS = [
+    (title, "Striver" if title in _STRIVER_ONLY_TITLES else source, topic, difficulty,
+     lc_num, problem, examples, constraints, time_c, space_c, tags)
+    for title, source, topic, difficulty, lc_num, problem, examples, constraints,
+    time_c, space_c, tags in QUESTIONS
 ]
 
 

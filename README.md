@@ -39,7 +39,7 @@ Practice **Striver's SDE Sheet** and **NeetCode 150** problems directly inside t
 6. On a correct verdict, save your solution locally — it reloads next time you open the question
 
 ### Question Bank
-- **187 questions** across Striver's SDE Sheet and NeetCode 150
+- **187 questions**, including all **150 NeetCode** sheet questions
 - Topics: Arrays, Linked List, Trees, Binary Search, Sliding Window, Stack, Dynamic Programming, Graphs, Two Pointers, Hashing, Heap, Backtracking, Sorting, Math, Bit Manipulation, Strings, Greedy, Tries, Intervals, Matrix, Design
 - Each question includes: problem statement, examples, constraints, required time/space complexity
 
