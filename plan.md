@@ -714,7 +714,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/test_dsa_starters.py tests/ -q --tb=short`
 
 ### Task 3: Add question batch 1 — Strings + Hashing
-- [ ] **Task ID:** T3
+- [x] **Task ID:** T3
 - **Title:** Add ~15 questions: Strings + Hashing topics
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -924,3 +924,4 @@ _(Executor: add dated entries here as tasks are completed)_
 
 2026-10-27 — T1: added DSA question-bank validation tests.
 2026-10-27 — T2: added DSA starter and comment-block tests.
+2026-10-27 — T3: added and validated 15 Strings and Hashing questions (76 total).
