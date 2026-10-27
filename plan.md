@@ -771,7 +771,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 7: Add question batch 5 — Trees + Tries
-- [ ] **Task ID:** T7
+- [x] **Task ID:** T7
 - **Title:** Add ~18 questions: Trees + Tries topics
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -928,3 +928,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T4: added and validated 15 Arrays and Two Pointers questions (91 total).
 2026-10-27 — T5: added and validated 15 Binary Search, Sorting, and Intervals questions (106 total).
 2026-10-27 — T6: added and validated 15 Linked List and Stack questions (121 total).
+2026-10-27 — T7: added and validated 18 Trees and Tries questions (139 total).
