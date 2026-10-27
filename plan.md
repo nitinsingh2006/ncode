@@ -785,7 +785,7 @@ Bottom tabs → "🎯 DSA FEEDBACK" tab. Shows:
 - **Test command:** `.venv/bin/python -m pytest tests/ -q --tb=short`
 
 ### Task 8: Add question batch 6 — Graphs
-- [ ] **Task ID:** T8
+- [x] **Task ID:** T8
 - **Title:** Add ~15 questions: Graphs topics
 - **Files touched:** MODIFY `app/dsa/seed_questions.py`
 - **Instructions:**
@@ -929,3 +929,4 @@ _(Executor: add dated entries here as tasks are completed)_
 2026-10-27 — T5: added and validated 15 Binary Search, Sorting, and Intervals questions (106 total).
 2026-10-27 — T6: added and validated 15 Linked List and Stack questions (121 total).
 2026-10-27 — T7: added and validated 18 Trees and Tries questions (139 total).
+2026-10-27 — T8: added and validated 15 Graphs questions (154 total).
