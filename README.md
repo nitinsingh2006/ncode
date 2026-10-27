@@ -22,11 +22,11 @@
 ```bash
 git clone https://github.com/nitinsingh2006/ncode.git
 cd ncode
-bash setup.sh      # one-time: creates venv + installs PySide6
-./run.sh           # launch the editor
+bash setup.sh --compilers   # one-time: creates venv, PySide6 + installs C++, Java, Rust, Node
+./run.sh                    # launch the editor
 ```
 
-> **That's it.** No database setup, no config files, no internet needed to start.
+> **That's it.** `setup.sh` automatically checks for missing compilers (g++, javac, rustc, node) and installs them along with Python dependencies.
 
 ---
 
@@ -35,11 +35,11 @@ bash setup.sh      # one-time: creates venv + installs PySide6
 | Feature | Problem after clone | Fix |
 |---|---|---|
 | **App won't start** | PySide6 not installed | Run `bash setup.sh` once |
+| **Compilers (C++, Java, Rust)** | Missing system tools | `bash setup.sh --compilers` installs them all automatically! |
 | **DSA questions missing** | `questions.db` is gitignored | Auto-created on first launch ✅ |
 | **AI Chatbot** | No Groq API key | Add key in Settings → Preferences |
 | **DSA Check Solution** | No Groq API key | Same — add key in Settings |
 | **AI Transpiler** | No Groq API key | Same — add key in Settings |
-| **Compilers (C++, Java etc.)** | System tools not installed | Install per language (see below) |
 
 ### Get a FREE Groq API key
 1. Go to → **https://console.groq.com**
