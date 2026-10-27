@@ -52,10 +52,8 @@ def make_comment_block(question: Question, language: str) -> str:
     if language in ("C", "C++", "Java", "JavaScript", "TypeScript", "Go", "Rust", "C#", "Kotlin", "Swift"):
         prefix = "// "
         block = "\n".join(f"{prefix}{line}".rstrip() for line in lines)
-    elif language == "Python":
-        block = '"""\n' + "\n".join(lines) + '\n"""'
     else:
-        # Fallback: hash comment
+        # Python and fallback: # comment lines
         prefix = "# "
         block = "\n".join(f"{prefix}{line}".rstrip() for line in lines)
 

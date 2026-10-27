@@ -11,11 +11,13 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QListWidget, QListWidgetItem,
-    QFrame, QScrollArea, QProgressBar, QSizePolicy,
+    QFrame, QScrollArea, QProgressBar, QSizePolicy, QMessageBox, QDialog,
 )
 
 from app.dsa.bank import Question, get_all_questions, search_questions, get_topics, get_question_count
-from app.dsa.storage import get_solved_ids, get_progress, get_topic_progress, init_solutions_db
+from app.dsa.storage import (
+    get_solved_ids, get_progress, get_topic_progress, get_sheet_progress, init_solutions_db
+)
 
 
 # ── Palette ──────────────────────────────────────────────────────────────────
@@ -214,8 +216,17 @@ class DSAPanel(QWidget):
         )
         top_row.addWidget(self._progress_label)
         top_row.addStretch()
+
+        self._stats_btn = QPushButton("📊")
+        self._stats_btn.setToolTip("View detailed Sheet and Topic breakdown")
+        self._stats_btn.setStyleSheet(
+            f"background:transparent; color:{_ACCENT}; border:none; font-size:12px; padding:0;"
+        )
+        self._stats_btn.clicked.connect(self._show_progress_dialog)
+        top_row.addWidget(self._stats_btn)
+
         self._pct_label = QLabel("")
-        self._pct_label.setStyleSheet(f"color:{_ACCENT}; font-size:11px;")
+        self._pct_label.setStyleSheet(f"color:{_ACCENT}; font-size:11px; font-weight:bold;")
         top_row.addWidget(self._pct_label)
         vbox.addLayout(top_row)
 
@@ -225,6 +236,12 @@ class DSAPanel(QWidget):
         self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(False)
         vbox.addWidget(self._progress_bar)
+
+        self._sheets_label = QLabel("Striver: 0/0  ·  NeetCode: 0/0")
+        self._sheets_label.setStyleSheet(
+            f"color:{_MUTED}; font-size:10px; padding-top:2px;"
+        )
+        vbox.addWidget(self._sheets_label)
 
         return container
 
@@ -311,6 +328,51 @@ class DSAPanel(QWidget):
         self._pct_label.setText(f"{pct}%")
         self._progress_bar.setValue(pct)
 
+        sheet_stats = get_sheet_progress(self._all_questions)
+        striver_s, striver_t = sheet_stats.get("Striver", (0, 0))
+        neet_s, neet_t = sheet_stats.get("NeetCode", (0, 0))
+        self._sheets_label.setText(
+            f"Striver: {striver_s}/{striver_t}  ·  NeetCode: {neet_s}/{neet_t}"
+        )
+
+    def _show_progress_dialog(self) -> None:
+        """Show full progress breakdown by sheet and topic."""
+        total = len(self._all_questions)
+        solved = len(self._solved_ids)
+        pct = int(solved / total * 100) if total else 0
+        sheet_stats = get_sheet_progress(self._all_questions)
+        topic_stats = get_topic_progress(self._all_questions)
+
+        striver_s, striver_t = sheet_stats.get("Striver", (0, 0))
+        neet_s, neet_t = sheet_stats.get("NeetCode", (0, 0))
+
+        lines = [
+            f"<h3>📊 DSA Practice Progress</h3>",
+            f"<p><b>Overall:</b> {solved} / {total} solved ({pct}%)</p>",
+            f"<p><b>Striver's SDE Sheet:</b> {striver_s} / {striver_t} solved</p>",
+            f"<p><b>NeetCode 150:</b> {neet_s} / {neet_t} solved</p>",
+            f"<hr><h4>Topic Breakdown:</h4><table cellspacing='6' cellpadding='2'>",
+        ]
+        for topic, (top_s, top_t) in sorted(topic_stats.items()):
+            top_pct = int(top_s / top_t * 100) if top_t else 0
+            check = "✅ " if (top_s == top_t and top_t > 0) else ""
+            lines.append(
+                f"<tr><td><b>{topic}</b></td>"
+                f"<td style='color:#a6e3a1;'>{check}{top_s}/{top_t}</td>"
+                f"<td style='color:#89b4fa;'>{top_pct}%</td></tr>"
+            )
+        lines.append("</table>")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("DSA Progress Breakdown")
+        box.setText("".join(lines))
+        box.setStyleSheet(
+            f"QMessageBox {{ background:{_BG}; color:{_TEXT}; }} "
+            f"QLabel {{ color:{_TEXT}; font-size:12px; }} "
+            f"QPushButton {{ background:{_BORDER}; color:{_TEXT}; padding:4px 14px; border-radius:4px; }}"
+        )
+        box.exec()
+
     def _apply_filters(self) -> None:
         query      = self._search_box.text().strip()
         sheet_raw  = self._sheet_combo.currentText()
@@ -341,12 +403,14 @@ class DSAPanel(QWidget):
     def _populate_list(self, questions: list[Question]) -> None:
         self._q_list.clear()
         current_topic = None
+        topic_stats = get_topic_progress(self._all_questions)
 
         for q in questions:
             # Topic separator row
             if q.topic != current_topic:
                 current_topic = q.topic
-                sep = QListWidgetItem(f"  📂  {q.topic}")
+                top_s, top_t = topic_stats.get(q.topic, (0, 0))
+                sep = QListWidgetItem(f"  📂  {q.topic} ({top_s}/{top_t})")
                 sep.setFlags(Qt.ItemFlag.NoItemFlags)
                 sep.setForeground(QColor(_ACCENT))
                 font = sep.font()

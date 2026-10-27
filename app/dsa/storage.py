@@ -112,8 +112,38 @@ def get_topic_progress(questions: list) -> dict[str, tuple[int, int]]:
     return {t: (v[0], v[1]) for t, v in result.items()}
 
 
+def get_sheet_progress(questions: list) -> dict[str, tuple[int, int]]:
+    """
+    Given a list of Question objects, return per-sheet (solved, total) counts.
+    Returns: {'Striver': (solved, total), 'NeetCode': (solved, total)}
+    """
+    solved_ids = get_solved_ids()
+    striver_total = sum(1 for q in questions if q.source in ("Striver", "Both"))
+    striver_solved = sum(1 for q in questions if q.source in ("Striver", "Both") and q.id in solved_ids)
+    neetcode_total = sum(1 for q in questions if q.source in ("NeetCode", "Both"))
+    neetcode_solved = sum(1 for q in questions if q.source in ("NeetCode", "Both") and q.id in solved_ids)
+    return {
+        "Striver": (striver_solved, striver_total),
+        "NeetCode": (neetcode_solved, neetcode_total),
+    }
+
+
+def _ensure_tables(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS solutions (
+            question_id  INTEGER PRIMARY KEY,
+            language     TEXT    NOT NULL DEFAULT 'Python',
+            code         TEXT    NOT NULL DEFAULT '',
+            solved       INTEGER NOT NULL DEFAULT 0,
+            saved_at     TEXT    NOT NULL DEFAULT ''
+        );
+    """)
+    conn.commit()
+
+
 def _get_conn() -> sqlite3.Connection:
     SOLUTIONS_DB.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(SOLUTIONS_DB))
     conn.row_factory = sqlite3.Row
+    _ensure_tables(conn)
     return conn

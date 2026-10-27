@@ -17,12 +17,26 @@ _storage_module.SOLUTIONS_DB = Path(_tmp_db_file.name)
 
 from app.dsa.storage import (
     init_solutions_db, save_solution, get_solution,
-    get_solved_ids, get_progress,
+    get_solved_ids, get_progress, get_sheet_progress, get_topic_progress,
 )
+from app.dsa.bank import Question
+
+
+def setup_module():
+    """Initialize test DB."""
+    init_solutions_db()
+
+
+def teardown_module():
+    """Cleanup test DB."""
+    try:
+        Path(_tmp_db_file.name).unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def setup():
-    """Initialize test DB."""
+    """Fallback initialization."""
     init_solutions_db()
 
 
@@ -100,6 +114,29 @@ def test_different_languages_same_question():
     print("✓ re-saving with different language updates correctly")
 
 
+def test_sheet_and_topic_progress():
+    """Per-sheet and per-topic progress calculations."""
+    q1 = Question(id=101, title="Q1", source="Striver", topic="Arrays", difficulty="Easy",
+                  problem_statement="", examples="", constraints="", time_complexity="", space_complexity="")
+    q2 = Question(id=102, title="Q2", source="NeetCode", topic="Arrays", difficulty="Medium",
+                  problem_statement="", examples="", constraints="", time_complexity="", space_complexity="")
+    q3 = Question(id=103, title="Q3", source="Both", topic="Trees", difficulty="Hard",
+                  problem_statement="", examples="", constraints="", time_complexity="", space_complexity="")
+
+    save_solution(101, "Python", "code", solved=True)
+    save_solution(102, "Python", "code", solved=False)
+    save_solution(103, "Python", "code", solved=True)
+
+    sheet_stats = get_sheet_progress([q1, q2, q3])
+    assert sheet_stats["Striver"] == (2, 2)  # q1 (solved), q3 (solved, Both)
+    assert sheet_stats["NeetCode"] == (1, 2)  # q2 (not solved), q3 (solved, Both)
+
+    topic_stats = get_topic_progress([q1, q2, q3])
+    assert topic_stats["Arrays"] == (1, 2)
+    assert topic_stats["Trees"] == (1, 1)
+    print("✓ sheet and topic progress calculated correctly")
+
+
 if __name__ == "__main__":
     print("\n" + "=" * 54)
     print("  ncode — DSA Storage Tests")
@@ -114,6 +151,7 @@ if __name__ == "__main__":
         test_progress,
         test_language_and_timestamp,
         test_different_languages_same_question,
+        test_sheet_and_topic_progress,
     ]
 
     failed = 0

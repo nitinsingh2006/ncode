@@ -50,6 +50,7 @@ def test_incorrect_verdict():
     assert len(result.edge_cases) == 2
     assert result.complexity_ok is False
     assert "hash map" in result.raw
+    assert "hash map" in result.hint
     print("✓ incorrect verdict parsed")
 
 

@@ -27,6 +27,7 @@ class CheckResult:
     complexity_ok: bool    # True if time/space is acceptable
     complexity_note: str   # details on complexity
     raw: str               # raw Groq response (for debugging)
+    hint: str = ""         # hint for incorrect solutions
 
 
 def _build_check_prompt(
@@ -90,6 +91,7 @@ def _parse_response(raw: str) -> CheckResult:
             complexity_ok=False,
             complexity_note="",
             raw=raw,
+            hint="",
         )
     try:
         data = json.loads(json_match.group())
@@ -102,6 +104,7 @@ def _parse_response(raw: str) -> CheckResult:
             complexity_ok=False,
             complexity_note="",
             raw=raw,
+            hint="",
         )
 
     verdict = str(data.get("verdict", "error")).lower()
@@ -115,6 +118,7 @@ def _parse_response(raw: str) -> CheckResult:
         edge_cases=list(data.get("edge_cases", [])),
         complexity_ok=bool(data.get("complexity_ok", False)),
         complexity_note=str(data.get("complexity_note", "")),
+        hint=str(data.get("hint", "")),
         raw=raw,
     )
 

@@ -26,6 +26,7 @@ def test_runner_thread_python():
     runner.finished_signal.connect(on_finished)
     runner.start()
     app.exec()
+    runner.wait(3000)
 
     assert len(results) == 1, "Expected 1 result"
     res = results[0]
@@ -53,6 +54,7 @@ def test_runner_thread_stop():
     runner.finished_signal.connect(on_finished)
     runner.start()
     app.exec()
+    runner.wait(3000)
 
     assert len(results) == 1, "Expected 1 result"
     res = results[0]

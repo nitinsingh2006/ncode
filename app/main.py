@@ -89,14 +89,15 @@ def _extract_user_code(full_text: str, language: str) -> str:
     """
     Strip the DSA comment header block from editor content.
     Returns only the user's solution code (everything after the header).
-    The header ends at the closing comment marker (\"\"\" for Python, last // ===... line for others).
+    Supports '# ===...', '// ===...', '/* ... */', and triple quotes.
     """
     import re
     lines = full_text.splitlines()
+    end_idx = -1
+
+    # Check for triple-quote block
     if language == "Python":
-        # Find closing triple-quote after the opening one
         in_block = False
-        end_idx = 0
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith('"""') and not in_block:
@@ -105,18 +106,17 @@ def _extract_user_code(full_text: str, language: str) -> str:
             if in_block and '"""' in line:
                 end_idx = i
                 break
-        if end_idx:
-            return "\n".join(lines[end_idx + 1:]).strip()
-    else:
-        # C-style: find the last line matching // ===...
-        end_idx = 0
-        for i, line in enumerate(lines):
-            if re.match(r"^//\s*={10,}", line.strip()):
-                end_idx = i
-        if end_idx:
-            return "\n".join(lines[end_idx + 1:]).strip()
 
-    # Fallback: return full text (no header found)
+    # If not a triple quote, look for the closing boundary marker (===...)
+    if end_idx == -1:
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if re.match(r"^(#|//|/\*|\*)\s*={10,}", stripped) or stripped.endswith("*/"):
+                end_idx = i
+
+    if end_idx != -1 and end_idx + 1 < len(lines):
+        return "\n".join(lines[end_idx + 1:]).strip()
+
     return full_text.strip()
 
 
@@ -473,6 +473,7 @@ class TabState:
         self.language = language
         self.file_path: Path | None = file_path
         self.is_modified = False
+        self.dsa_question = None
 
     @property
     def display_title(self) -> str:
@@ -1167,6 +1168,11 @@ class NitinEditor(QMainWindow):
             language=lang,
             code=content,
         )
+        container = self._tab_widget.widget(idx)
+        if container:
+            st = self._tab_states.get(id(container))
+            if st:
+                st.dsa_question = question
 
         # Store active question state
         self._active_dsa_question = question
@@ -1322,7 +1328,7 @@ class NitinEditor(QMainWindow):
                 "",
                 "━" * 60,
                 "  💡 Hint  (not the full solution):",
-                f"  {result.raw.split('hint')[1][:300] if 'hint' in result.raw.lower() else 'Keep thinking — you can do it!'}",
+                f"  {result.hint if result.hint else 'Keep thinking — you can do it!'}",
             ]
             self._dsa_feedback_area.setPlainText("\n".join(lines))
             self._set_status(f"❌ Needs work — {q.title}")
@@ -1345,16 +1351,16 @@ class NitinEditor(QMainWindow):
         full_code = editor.toPlainText()
         user_code = _extract_user_code(full_code, lang)
 
-        reply = QMessageBox.question(
-            self,
-            "Save Solution?",
-            f"✅  Your solution for '{question.title}' is CORRECT!\n\n"
-            "Do you want to save this solution? It will be stored locally and "
-            "shown next time you open this question.",
-            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard,
-            QMessageBox.StandardButton.Save,
-        )
-        if reply == QMessageBox.StandardButton.Save:
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Solution Correct!")
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setText("Your solution is correct! Do you want to save this code with the question?")
+        save_btn = msg_box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+        skip_btn = msg_box.addButton("Skip", QMessageBox.ButtonRole.RejectRole)
+        msg_box.setDefaultButton(save_btn)
+        msg_box.exec()
+
+        if msg_box.clickedButton() == save_btn:
             try:
                 save_solution(question.id, lang, user_code, solved=True)
                 if self._dsa_panel is not None:
@@ -1570,6 +1576,9 @@ class NitinEditor(QMainWindow):
             self._update_language_ui(state.language)
             self._update_status_bar()
             self._prev_language = state.language  # sync so next switch knows the starting lang
+            self._active_dsa_question = getattr(state, "dsa_question", None)
+            if hasattr(self, "_dsa_submit_btn"):
+                self._dsa_submit_btn.setVisible(self._active_dsa_question is not None)
 
     def _on_editor_modified(self, cid: int) -> None:
         state = self._tab_states.get(cid)
@@ -1839,15 +1848,10 @@ class NitinEditor(QMainWindow):
         if editor is None:
             return
 
-        # HTML/CSS → preview
+        # HTML/CSS → preview and browser execution
         if state.language in ("HTML", "CSS"):
-            code = editor.get_text()
             self._show_preview()
-            self._show_terminal_panel()
-            self._term_output.clear()
-            self._term_append(f"🌐  [{state.language}] Live preview rendered in preview window.\n", "#89b4fa")
-            self._term_append(f"    Lines: {len(code.splitlines())}  ·  Bytes: {len(code)}\n\n", "#a6e3a1")
-            self._set_status(f"Preview: {state.language}")
+            self._open_in_browser()
             return
 
         # SQL → SQLite execution
@@ -2114,11 +2118,17 @@ class NitinEditor(QMainWindow):
         code = editor.get_text()
         from app.preview import open_in_default_browser
         try:
-            path = open_in_default_browser(code, is_css=(state.language == "CSS"))
-            self._set_status("Opened in default browser")
+            path = open_in_default_browser(
+                code,
+                is_css=(state.language == "CSS"),
+                file_path=state.file_path,
+            )
+            self._set_status(f"🌐 Running {state.language} in default browser")
             self._show_terminal_panel()
+            self._term_output.clear()
             self._term_append(
-                f"🌍  Opened in system default browser:\n    file://{path}\n\n",
+                f"🌍  Launched in system default browser:\n    file://{path}\n"
+                f"    Lines: {len(code.splitlines())}  ·  Bytes: {len(code)}\n\n",
                 "#89b4fa",
             )
         except Exception as e:
@@ -2154,7 +2164,7 @@ class NitinEditor(QMainWindow):
         if self._preview_panel is not None:
             try:
                 if state.language == "HTML":
-                    self._preview_panel.render_html(code)
+                    self._preview_panel.render_html(code, file_path=state.file_path)
                 elif state.language == "CSS":
                     self._preview_panel.render_css_only(code)
             except Exception:
