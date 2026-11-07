@@ -81,6 +81,9 @@ from app.github_pusher import push_code_file, push_dsa_solution
 # Pomodoro timer
 from app.pomodoro import PomodoroWidget
 
+# File Tree sidebar
+from app.file_tree import FileTreeWidget
+
 # Optional: preview
 try:
     from app.preview import PreviewPanel, HAS_WEBENGINE
@@ -798,6 +801,7 @@ class NitinEditor(QMainWindow):
         file_menu = mb.addMenu("&File")
         file_menu.addAction(self._action_new)
         file_menu.addAction(self._action_open)
+        self._add_menu_action(file_menu, "📁 Open &Folder…", self._open_folder, "Ctrl+Shift+F")
         file_menu.addSeparator()
         file_menu.addAction(self._action_save)
         file_menu.addAction(self._action_save_as)
@@ -922,6 +926,7 @@ class NitinEditor(QMainWindow):
         tb.addAction(self._action_new)
         tb.addAction(self._action_open)
         tb.addAction(self._action_save)
+        tb.addAction(tb_action("📁", self._open_folder, tip="Open Folder (Ctrl+Shift+F)"))
         tb.addSeparator()
 
         lang_label = QLabel("  Language: ")
@@ -1014,6 +1019,21 @@ class NitinEditor(QMainWindow):
         # Horizontal splitter: DSA sidebar | editor area
         self._h_splitter = QSplitter(Qt.Orientation.Horizontal)
 
+        # ── Left side-panel: File Tree + DSA (tab widget) ─────────────────────
+        self._left_tabs = QTabWidget()
+        self._left_tabs.setDocumentMode(True)
+        self._left_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self._left_tabs.setStyleSheet(
+            "QTabWidget::pane { border: none; background: #1e1e2e; }"
+            "QTabBar::tab { background:#181825; color:#6c7086; padding:4px 10px; font-size:12px; }"
+            "QTabBar::tab:selected { background:#1e1e2e; color:#cdd6f4; border-bottom:2px solid #89b4fa; }"
+        )
+
+        # File Tree tab
+        self._file_tree = FileTreeWidget()
+        self._file_tree.file_opened.connect(self._open_file_from_tree)
+        self._left_tabs.addTab(self._file_tree, "🌳 Files")
+
         # DSA sidebar (hidden by default)
         if _HAS_DSA:
             try:
@@ -1021,10 +1041,12 @@ class NitinEditor(QMainWindow):
                 init_solutions_db()
                 self._dsa_panel = DSAPanel()
                 self._dsa_panel.question_selected.connect(self._dsa_open_question)
-                self._h_splitter.addWidget(self._dsa_panel)
-                self._dsa_panel.setVisible(False)   # hidden until toggled
+                self._left_tabs.addTab(self._dsa_panel, "🎯 DSA")
             except Exception as _e:
                 self._dsa_panel = None
+
+        self._left_tabs.setVisible(False)   # hidden until toggled (DSA or File Tree)
+        self._h_splitter.addWidget(self._left_tabs)
 
         # Editor + bottom panel (vertical)
         editor_area = QWidget()
@@ -1073,7 +1095,7 @@ class NitinEditor(QMainWindow):
             except Exception:
                 self._chatbot_panel = None
 
-        self._h_splitter.setSizes([280, 1000, 0])
+        self._h_splitter.setSizes([0, 1000, 0])   # left_tabs hidden by default
 
         root.addWidget(self._h_splitter)
 
@@ -1186,24 +1208,68 @@ class NitinEditor(QMainWindow):
     # ── DSA Practice Actions ──────────────────────────────────────────────────
 
     def _dsa_toggle_sidebar(self) -> None:
-        """Show/hide the DSA sidebar panel."""
+        """Show/hide the DSA sidebar panel (switches to DSA tab in left panel)."""
         if self._dsa_panel is None:
             return
-        visible = not self._dsa_panel.isVisible()
-        self._dsa_panel.setVisible(visible)
-        if visible:
+        # Switch left_tabs to DSA tab
+        dsa_tab_idx = self._left_tabs.indexOf(self._dsa_panel)
+        left_visible = self._left_tabs.isVisible()
+        if left_visible and self._left_tabs.currentIndex() == dsa_tab_idx:
+            # Already showing DSA → hide
+            self._left_tabs.setVisible(False)
+            self._set_status("DSA sidebar closed")
+        else:
+            self._left_tabs.setVisible(True)
+            if dsa_tab_idx >= 0:
+                self._left_tabs.setCurrentIndex(dsa_tab_idx)
             sizes = self._h_splitter.sizes()
             if sizes[0] < 100:
                 self._h_splitter.setSizes([280, max(sizes[1], 800)])
             self._dsa_panel.refresh()
             self._set_status("DSA sidebar opened")
-        else:
-            self._set_status("DSA sidebar closed")
 
     def _dsa_refresh(self) -> None:
         if self._dsa_panel is not None:
             self._dsa_panel.refresh()
             self._set_status("DSA questions refreshed")
+
+    # ── File Tree Actions ─────────────────────────────────────────────────────
+
+    def _open_folder(self) -> None:
+        """Open a folder and show it in the File Tree sidebar."""
+        start = str(Path.home())
+        folder = QFileDialog.getExistingDirectory(self, "Open Folder", start)
+        if folder:
+            self._file_tree.open_folder(folder)
+            # Show left panel on Files tab
+            files_idx = self._left_tabs.indexOf(self._file_tree)
+            self._left_tabs.setVisible(True)
+            if files_idx >= 0:
+                self._left_tabs.setCurrentIndex(files_idx)
+            sizes = self._h_splitter.sizes()
+            if sizes[0] < 100:
+                self._h_splitter.setSizes([260, max(sizes[1], 800)])
+            self._set_status(f"📁 Opened folder: {Path(folder).name}")
+
+    def _toggle_file_tree(self) -> None:
+        """Toggle the File Tree sidebar."""
+        files_idx = self._left_tabs.indexOf(self._file_tree)
+        left_visible = self._left_tabs.isVisible()
+        if left_visible and self._left_tabs.currentIndex() == files_idx:
+            self._left_tabs.setVisible(False)
+            self._set_status("🌳 File tree closed")
+        else:
+            self._left_tabs.setVisible(True)
+            if files_idx >= 0:
+                self._left_tabs.setCurrentIndex(files_idx)
+            sizes = self._h_splitter.sizes()
+            if sizes[0] < 100:
+                self._h_splitter.setSizes([260, max(sizes[1], 800)])
+            self._set_status("🌳 File tree opened")
+
+    def _open_file_from_tree(self, path_str: str) -> None:
+        """Open a file from the file tree into a new editor tab."""
+        self._open_file_path(Path(path_str))
 
     def _chatbot_toggle(self) -> None:
         """Show/hide the live chatbot panel (right side)."""
