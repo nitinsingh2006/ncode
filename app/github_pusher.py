@@ -119,8 +119,10 @@ def push_code_file(
         return False, str(e)
 
     ext = _lang_to_ext(language)
-    base = re.sub(r"\.[^.]+$", "", filename) or "untitled"
-    base = re.sub(r'[\\/:*?"<>|]', "_", base)
+    base = re.sub(r"\.[^.]+$", "", filename)  # drop extension
+    base = re.sub(r"[\u25cf\s]+", " ", base).strip()  # strip bullet ● and spaces
+    base = re.sub(r'[\\/:*?"<>|\u25cf\t\n\r]+', "_", base)  # bad chars→_
+    base = re.sub(r"_+", "_", base).strip("_ ") or "untitled"
     file_path = f"{subfolder}/{base}.{ext}" if subfolder else f"{base}.{ext}"
     content_b64 = base64.b64encode(code.encode()).decode()
     msg = commit_msg or f"ncode: add/update {base}.{ext}"
