@@ -794,6 +794,12 @@ class NitinEditor(QMainWindow):
         self._action_open_terminal.setToolTip("Open Terminal panel (Ctrl+Shift+T)")
         self._action_open_terminal.triggered.connect(self._show_terminal_panel)
 
+        self._action_gh_push = QAction("🐙 &Push to GitHub", self)
+        self._action_gh_push.setShortcut(QKeySequence("Ctrl+Shift+U"))
+        self._action_gh_push.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self._action_gh_push.setToolTip("Push current file to GitHub (Ctrl+Shift+U)")
+        self._action_gh_push.triggered.connect(self._github_push_current)
+
     def _build_menu_bar(self) -> None:
         mb = self.menuBar()
 
@@ -805,6 +811,8 @@ class NitinEditor(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self._action_save)
         file_menu.addAction(self._action_save_as)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_gh_push)
         file_menu.addSeparator()
         self._recent_menu = file_menu.addMenu("Recent Files")
         self._refresh_recent_menu()
@@ -1008,6 +1016,23 @@ class NitinEditor(QMainWindow):
         tb.addAction(tb_action("⚙", self._show_settings, tip="Preferences"))
         tb.addSeparator()
         tb.addAction(tb_action("🍅", self._show_pomodoro, tip="Pomodoro Timer"))
+        tb.addSeparator()
+
+        # GitHub Push button — always visible, smart push (DSA or regular)
+        self._gh_push_btn = QPushButton("🐙 Push")
+        self._gh_push_btn.setStyleSheet(
+            "QPushButton { background:#238636; color:#ffffff; border:none; "
+            "border-radius:5px; padding:6px 14px; font-size:12px; font-weight:bold; }"
+            "QPushButton:hover { background:#2ea043; }"
+            "QPushButton:disabled { background:#313244; color:#585b70; border:none; }"
+        )
+        self._gh_push_btn.setToolTip(
+            "Push current code to GitHub (Ctrl+Shift+U)\n"
+            "• DSA question → pushes to DSA repo with problem statement\n"
+            "• Regular file  → pushes to your code repo"
+        )
+        self._gh_push_btn.clicked.connect(self._github_push_current)
+        tb.addWidget(self._gh_push_btn)
 
     def _build_central(self) -> None:
         central = QWidget()
@@ -1923,6 +1948,67 @@ class NitinEditor(QMainWindow):
         else:
             self._set_status(f"⚠ GitHub: {msg[:80]}")
             QMessageBox.warning(self, "GitHub Push Failed", msg)
+
+    def _github_push_current(self) -> None:
+        """
+        Smart GitHub push — one click from toolbar.
+        • If current tab is a DSA question → push to DSA repo (with problem statement)
+        • Otherwise → push to regular code repo
+        No dialog needed — just push and show status.
+        """
+        editor = self._current_editor()
+        state = self._current_state()
+        if editor is None or state is None:
+            self._set_status("⚠ Nothing to push — open a file first.")
+            return
+
+        code = editor.toPlainText().strip()
+        if not code:
+            self._set_status("⚠ Nothing to push — file is empty.")
+            return
+
+        token = self._settings.get("github_token", "").strip()
+        if not token:
+            QMessageBox.warning(
+                self, "GitHub Token Missing",
+                "Set your GitHub Personal Access Token in:\n"
+                "⚙ Settings → 🐙 GitHub Integration → GitHub Token"
+            )
+            return
+
+        # ── DSA question? → push to DSA repo ─────────────────────────────────
+        dsa_q = getattr(state, "dsa_question", None)
+        if dsa_q is not None:
+            dsa_repo = self._settings.get("dsa_github_repo", "").strip()
+            if not dsa_repo:
+                QMessageBox.warning(
+                    self, "DSA Repo Not Set",
+                    "Set your DSA GitHub repo in:\n"
+                    "⚙ Settings → 🐙 GitHub Integration → DSA Repo URL\n\n"
+                    "Example: https://github.com/username/dsa-solutions"
+                )
+                return
+            lang = self._lang_combo.currentText()
+            user_code = _extract_user_code(code, lang)
+            self._set_status(f"🐙 Pushing DSA: {dsa_q.title}…")
+            self._push_dsa_solution_to_github_bg(dsa_q, lang, user_code)
+            return
+
+        # ── Regular file → push to code repo ────────────────────────────────
+        code_repo = self._settings.get("github_repo", "").strip()
+        if not code_repo:
+            QMessageBox.warning(
+                self, "Code Repo Not Set",
+                "Set your GitHub code repo in:\n"
+                "⚙ Settings → 🐙 GitHub Integration → Code Repo URL\n\n"
+                "Example: https://github.com/username/my-code"
+            )
+            return
+
+        lang = self._lang_combo.currentText()
+        filename = state.display_title
+        self._set_status(f"🐙 Pushing {filename}…")
+        self._push_tab_to_github_bg(state, code)
 
     def _next_tab(self) -> None:
         n = self._tab_widget.count()
