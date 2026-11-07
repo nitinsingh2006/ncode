@@ -21,7 +21,7 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from PySide6.QtCore import Qt, QSize, QThread, Signal as Sig
+from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal as Sig
 from PySide6.QtGui import (
     QAction, QFont, QIcon, QKeySequence, QColor,
     QTextCursor, QTextDocument,
@@ -76,6 +76,9 @@ except ImportError:
 
 # GitHub Pusher (urllib-only, no extra deps)
 from app.github_pusher import push_code_file, push_dsa_solution
+
+# Pomodoro timer
+from app.pomodoro import PomodoroWidget
 
 # Optional: preview
 try:
@@ -869,6 +872,10 @@ class NitinEditor(QMainWindow):
             chat_menu = mb.addMenu("💬 &Chat")
             self._add_menu_action(chat_menu, "Toggle &Chatbot", self._chatbot_toggle, "Ctrl+Shift+I")
 
+        # Tools
+        tools_menu = mb.addMenu("&Tools")
+        self._add_menu_action(tools_menu, "🍅 Pomodoro Timer", self._show_pomodoro, "Ctrl+Shift+O")
+
         # Help
         help_menu = mb.addMenu("&Help")
         self._add_menu_action(help_menu, "&About",           self._show_about)
@@ -993,6 +1000,8 @@ class NitinEditor(QMainWindow):
 
         tb.addSeparator()
         tb.addAction(tb_action("⚙", self._show_settings, tip="Preferences"))
+        tb.addSeparator()
+        tb.addAction(tb_action("🍅", self._show_pomodoro, tip="Pomodoro Timer"))
 
     def _build_central(self) -> None:
         central = QWidget()
@@ -1041,6 +1050,9 @@ class NitinEditor(QMainWindow):
         self._bottom_tabs.addTab(self._output_panel, "OUTPUT")
         self._bottom_tabs.addTab(self._terminal_panel_widget, "TERMINAL")
         self._bottom_tabs.addTab(self._dsa_feedback_panel, "🎯 DSA FEEDBACK")
+        # Pomodoro tab
+        self._pomodoro_widget = PomodoroWidget()
+        self._bottom_tabs.addTab(self._pomodoro_widget, "🍅 Pomodoro")
         self._v_splitter.addWidget(self._bottom_tabs)
         self._v_splitter.setSizes([520, 200])
 
@@ -1233,6 +1245,16 @@ class NitinEditor(QMainWindow):
             self._chatbot_panel.update_context(code, fname, lang)
         else:
             self._chatbot_panel.update_context("", "", "")
+
+    def _show_pomodoro(self) -> None:
+        """Switch to the Pomodoro tab in the bottom panel."""
+        idx = self._bottom_tabs.indexOf(self._pomodoro_widget)
+        if idx >= 0:
+            self._bottom_tabs.setCurrentIndex(idx)
+        # Make sure bottom panel is visible
+        sizes = self._v_splitter.sizes()
+        if len(sizes) >= 2 and sizes[1] < 50:
+            self._v_splitter.setSizes([sizes[0], 220])
 
     def _chatbot_insert_to_editor(self, code: str, lang: str = "") -> None:
         """Insert AI-generated code into the active editor tab."""
