@@ -74,6 +74,9 @@ try:
 except ImportError:
     _HAS_DSA = False
 
+# GitHub Pusher (urllib-only, no extra deps)
+from app.github_pusher import push_code_file, push_dsa_solution
+
 # Optional: preview
 try:
     from app.preview import PreviewPanel, HAS_WEBENGINE
@@ -1495,6 +1498,20 @@ class NitinEditor(QMainWindow):
                 self._dsa_feedback_area.appendPlainText(
                     "\n\n✅ Solution saved to local storage!"
                 )
+                # ── Offer GitHub push for DSA solution ───────────────────
+                dsa_repo = self._settings.get("dsa_github_repo", "").strip()
+                dsa_token = self._settings.get("github_token", "").strip()
+                if dsa_repo and dsa_token:
+                    gh_reply = QMessageBox.question(
+                        self,
+                        "🐙 Push DSA Solution to GitHub?",
+                        f"Push solution for «{question.title}» to your DSA repo?\n"
+                        f"Repo: {dsa_repo}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if gh_reply == QMessageBox.StandardButton.Yes:
+                        self._push_dsa_solution_to_github_bg(question, lang, user_code)
             except Exception as e:
                 QMessageBox.warning(self, "Save Error", f"Could not save solution:\n{e}")
 
@@ -1675,6 +1692,25 @@ class NitinEditor(QMainWindow):
                 self._tab_widget.setCurrentIndex(index)
                 if not self._save_file():
                     return
+
+            # ── GitHub push prompt ──────────────────────────────────────
+            github_repo = self._settings.get("github_repo", "").strip()
+            github_token = self._settings.get("github_token", "").strip()
+            if github_repo and github_token:
+                editor_widget = getattr(container, "_editor_widget", None)
+                code = editor_widget.toPlainText() if editor_widget else ""
+                if code.strip():
+                    gh_reply = QMessageBox.question(
+                        self,
+                        "🐙 Push to GitHub?",
+                        f'Push "{state.display_title}" to GitHub?\n'
+                        f'Repo: {github_repo}',
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    if gh_reply == QMessageBox.StandardButton.Yes:
+                        self._push_tab_to_github_bg(state, code)
+
         self._tab_states.pop(cid, None)
         self._tab_widget.removeTab(index)
         if self._tab_widget.count() == 0:
@@ -1684,6 +1720,104 @@ class NitinEditor(QMainWindow):
         idx = self._tab_widget.currentIndex()
         if idx >= 0:
             self._close_tab(idx)
+
+    # ── GitHub Push Helpers ───────────────────────────────────────────────────
+
+    def _push_tab_to_github_bg(self, state: "TabState", code: str) -> None:  # type: ignore[name-defined]
+        """Push a code tab to GitHub in a background thread (non-blocking)."""
+        repo_url = self._settings.get("github_repo", "").strip()
+        token = self._settings.get("github_token", "").strip()
+        lang = state.language
+        filename = state.display_title
+
+        self._set_status("🐙 Pushing to GitHub…")
+
+        class _GHPushWorker(QThread):
+            done = Sig(bool, str)
+
+            def __init__(self, repo_url, token, filename, lang, code):
+                super().__init__()
+                self._repo_url = repo_url
+                self._token = token
+                self._filename = filename
+                self._lang = lang
+                self._code = code
+
+            def run(self):
+                ok, msg = push_code_file(
+                    self._repo_url, self._token,
+                    self._filename, self._lang, self._code,
+                )
+                self.done.emit(ok, msg)
+
+        worker = _GHPushWorker(repo_url, token, filename, lang, code)
+        worker.done.connect(self._on_github_push_done)
+        # Keep reference so GC doesn't kill it
+        self._gh_push_workers = getattr(self, "_gh_push_workers", [])
+        self._gh_push_workers.append(worker)
+        worker.finished.connect(lambda: self._gh_push_workers.remove(worker) if worker in self._gh_push_workers else None)
+        worker.start()
+
+    def _push_dsa_solution_to_github_bg(
+        self,
+        question: "Question",  # type: ignore[name-defined]
+        language: str,
+        code: str,
+    ) -> None:
+        """Push DSA problem + solution to the DSA GitHub repo (non-blocking)."""
+        repo_url = self._settings.get("dsa_github_repo", "").strip()
+        token = self._settings.get("github_token", "").strip()
+        if not repo_url or not token:
+            return
+
+        self._set_status("🐙 Pushing DSA solution to GitHub…")
+
+        q_title = getattr(question, "title", "Unknown")
+        q_statement = getattr(question, "statement", "")
+        q_topic = getattr(question, "topic", "")
+        q_difficulty = getattr(question, "difficulty", "")
+
+        class _DSAPushWorker(QThread):
+            done = Sig(bool, str)
+
+            def __init__(self, repo_url, token, title, statement, topic, difficulty, lang, code):
+                super().__init__()
+                self._repo_url = repo_url
+                self._token = token
+                self._title = title
+                self._statement = statement
+                self._topic = topic
+                self._difficulty = difficulty
+                self._lang = lang
+                self._code = code
+
+            def run(self):
+                ok, msg = push_dsa_solution(
+                    self._repo_url, self._token,
+                    self._title, self._statement,
+                    self._topic, self._difficulty,
+                    self._lang, self._code,
+                )
+                self.done.emit(ok, msg)
+
+        worker = _DSAPushWorker(
+            repo_url, token,
+            q_title, q_statement, q_topic, q_difficulty,
+            language, code,
+        )
+        worker.done.connect(self._on_github_push_done)
+        self._gh_push_workers = getattr(self, "_gh_push_workers", [])
+        self._gh_push_workers.append(worker)
+        worker.finished.connect(lambda: self._gh_push_workers.remove(worker) if worker in self._gh_push_workers else None)
+        worker.start()
+
+    def _on_github_push_done(self, ok: bool, msg: str) -> None:
+        """Called on main thread when GitHub push completes."""
+        if ok:
+            self._set_status(msg)
+        else:
+            self._set_status(f"⚠ GitHub: {msg[:80]}")
+            QMessageBox.warning(self, "GitHub Push Failed", msg)
 
     def _next_tab(self) -> None:
         n = self._tab_widget.count()

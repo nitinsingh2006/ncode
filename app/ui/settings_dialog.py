@@ -235,6 +235,46 @@ class SettingsDialog(QDialog):
         ai_form.addRow("", hint)
         layout.addWidget(ai_group)
 
+        # ── GitHub Integration ───────────────────────────────────────────────
+        gh_group = QGroupBox("🐙  GitHub Integration")
+        gh_form = QFormLayout(gh_group)
+        gh_form.setSpacing(10)
+
+        _input_style = (
+            "background: #313244; color: #cdd6f4; border: 1px solid #45475a;"
+            " border-radius: 4px; padding: 4px 8px; min-width: 260px;"
+        )
+
+        self._gh_repo_input = QLineEdit()
+        self._gh_repo_input.setPlaceholderText("https://github.com/username/my-code")
+        self._gh_repo_input.setText(self._settings.get("github_repo", ""))
+        self._gh_repo_input.setStyleSheet(_input_style)
+        gh_form.addRow("Code Repo URL:", self._gh_repo_input)
+
+        self._gh_dsa_repo_input = QLineEdit()
+        self._gh_dsa_repo_input.setPlaceholderText("https://github.com/username/dsa-solutions")
+        self._gh_dsa_repo_input.setText(self._settings.get("dsa_github_repo", ""))
+        self._gh_dsa_repo_input.setStyleSheet(_input_style)
+        gh_form.addRow("DSA Repo URL:", self._gh_dsa_repo_input)
+
+        self._gh_token_input = QLineEdit()
+        self._gh_token_input.setPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx  (Personal Access Token)")
+        self._gh_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._gh_token_input.setText(self._settings.get("github_token", ""))
+        self._gh_token_input.setStyleSheet(_input_style)
+        gh_form.addRow("GitHub Token:", self._gh_token_input)
+
+        gh_hint = QLabel(
+            "<small>Token needs <b>Contents: Read & Write</b> permission.<br>"
+            "Create one at <a href='https://github.com/settings/tokens' style='color:#89b4fa;'>"
+            "github.com/settings/tokens</a>."
+            "<br>Leave blank to disable GitHub push features.</small>"
+        )
+        gh_hint.setOpenExternalLinks(True)
+        gh_hint.setWordWrap(True)
+        gh_form.addRow("", gh_hint)
+        layout.addWidget(gh_group)
+
         layout.addStretch()
         scroll.setWidget(container)
         outer.addWidget(scroll)
@@ -281,6 +321,10 @@ class SettingsDialog(QDialog):
         val = self._groq_key_input.text().strip()
         self._settings["groq_api_key"] = val
         self._settings["gemini_api_key"] = val
+        # GitHub Integration
+        self._settings["github_repo"] = self._gh_repo_input.text().strip()
+        self._settings["dsa_github_repo"] = self._gh_dsa_repo_input.text().strip()
+        self._settings["github_token"] = self._gh_token_input.text().strip()
         self.settings_changed.emit(self._settings)
         self.accept()
 

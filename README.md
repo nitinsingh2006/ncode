@@ -142,6 +142,12 @@ sudo apt install php-cli
 - Tracks solved questions with ✅ progress bars
 - Shortcut: `Ctrl+Shift+D` (toggle sidebar), `Ctrl+Shift+G` (check solution)
 
+### 🐙 GitHub Integration
+- **Tab-close → Push prompt**: When you close a modified tab, ncode asks "Push to GitHub?" — Groq automatically commits & pushes to your configured repo (non-blocking background thread)
+- **DSA auto-push**: When you save a correct DSA solution, ncode offers to push it to a *separate* DSA solutions repo — creates a structured folder `{topic}/{question}/README.md` (problem statement) + `solution.{ext}` (your code)
+- Configure both repos + Personal Access Token from **Settings → 🐙 GitHub Integration** (token stored locally, never sent anywhere except GitHub API)
+- Uses GitHub REST API (`urllib` only — no extra dependencies)
+
 ### 💬 Live AI Chatbot
 - Side panel chatbot powered by Groq (`qwen/qwen3.8-27b`)
 - **Context-aware** — always sees the code in your current tab
