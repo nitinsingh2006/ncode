@@ -1860,7 +1860,8 @@ class NitinEditor(QMainWindow):
         lang = state.language
         filename = state.display_title
 
-        self._set_status("🐙 Pushing to GitHub…")
+        # ← INSTANT feedback — user can keep working immediately
+        self._set_status(f"🐙 Queued: {filename} → uploading in background…")
 
         class _GHPushWorker(QThread):
             done = Sig(bool, str)
@@ -1882,7 +1883,6 @@ class NitinEditor(QMainWindow):
 
         worker = _GHPushWorker(repo_url, token, filename, lang, code)
         worker.done.connect(self._on_github_push_done)
-        # Keep reference so GC doesn't kill it
         self._gh_push_workers = getattr(self, "_gh_push_workers", [])
         self._gh_push_workers.append(worker)
         worker.finished.connect(lambda: self._gh_push_workers.remove(worker) if worker in self._gh_push_workers else None)
@@ -1900,12 +1900,13 @@ class NitinEditor(QMainWindow):
         if not repo_url or not token:
             return
 
-        self._set_status("🐙 Pushing DSA solution to GitHub…")
-
         q_title = getattr(question, "title", "Unknown")
         q_statement = getattr(question, "statement", "")
         q_topic = getattr(question, "topic", "")
         q_difficulty = getattr(question, "difficulty", "")
+
+        # ← INSTANT feedback
+        self._set_status(f"🐙 Queued: {q_title} → uploading DSA solution…")
 
         class _DSAPushWorker(QThread):
             done = Sig(bool, str)
@@ -1942,12 +1943,13 @@ class NitinEditor(QMainWindow):
         worker.start()
 
     def _on_github_push_done(self, ok: bool, msg: str) -> None:
-        """Called on main thread when GitHub push completes."""
+        """Called on main thread when GitHub push completes — silent success, brief error."""
         if ok:
-            self._set_status(msg)
+            self._set_status(msg)   # e.g. "✅ Pushed → owner/repo/path"
         else:
-            self._set_status(f"⚠ GitHub: {msg[:80]}")
-            QMessageBox.warning(self, "GitHub Push Failed", msg)
+            # No blocking dialog — just status bar warning so user isn't interrupted
+            short = msg.split("\n")[0][:80]
+            self._set_status(f"⚠ Push failed: {short} (check Settings → GitHub)")
 
     def _github_push_current(self) -> None:
         """
@@ -1990,7 +1992,7 @@ class NitinEditor(QMainWindow):
                 return
             lang = self._lang_combo.currentText()
             user_code = _extract_user_code(code, lang)
-            self._set_status(f"🐙 Pushing DSA: {dsa_q.title}…")
+            self._set_status(f"🐙 ✓ Queued: {dsa_q.title}")
             self._push_dsa_solution_to_github_bg(dsa_q, lang, user_code)
             return
 
@@ -2007,7 +2009,7 @@ class NitinEditor(QMainWindow):
 
         lang = self._lang_combo.currentText()
         filename = state.display_title
-        self._set_status(f"🐙 Pushing {filename}…")
+        self._set_status(f"🐙 ✓ Queued: {filename}")
         self._push_tab_to_github_bg(state, code)
 
     def _next_tab(self) -> None:
