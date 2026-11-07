@@ -110,7 +110,16 @@ def _put_file(
         _do_put()
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        if e.code == 404:
+        if e.code in (409, 422):
+            # 422 = file exists needs SHA; 409 = SHA mismatch (auto_init conflict)
+            get_req = urllib.request.Request(url, method="GET", headers=headers)
+            try:
+                with urllib.request.urlopen(get_req, timeout=10) as r:
+                    sha = json.loads(r.read().decode()).get("sha")
+                _do_put(sha)
+            except urllib.error.HTTPError as e2:
+                raise RuntimeError(f"GitHub API {e2.code}: {e2.read().decode(errors='replace')}") from e2
+        elif e.code == 404:
             # Repo doesn't exist → create it, then retry
             _create_repo(owner, repo, token)
             import time; time.sleep(1)  # give GitHub a moment to initialise
