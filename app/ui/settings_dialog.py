@@ -4,11 +4,16 @@ Settings dialog for the editor.
 """
 from __future__ import annotations
 
+import json
+import threading
+import urllib.error
+import urllib.request
 from typing import Any
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QObject, Slot
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QPushButton, QGroupBox, QFormLayout, QScrollArea, QWidget, QLineEdit,
+    QMessageBox,
 )
 
 
@@ -235,40 +240,68 @@ class SettingsDialog(QDialog):
         ai_form.addRow("", hint)
         layout.addWidget(ai_group)
 
-        # ── GitHub Integration ───────────────────────────────────────────────
+                # ── GitHub Integration ───────────────────────────────────────────────────────────────────────────────────────
         gh_group = QGroupBox("🐙  GitHub Integration")
         gh_form = QFormLayout(gh_group)
         gh_form.setSpacing(10)
 
         _input_style = (
             "background: #313244; color: #cdd6f4; border: 1px solid #45475a;"
-            " border-radius: 4px; padding: 4px 8px; min-width: 260px;"
+            " border-radius: 4px; padding: 4px 8px; min-width: 220px;"
+        )
+        _btn_sm = (
+            "QPushButton { background:#313244; color:#89b4fa; border:1px solid #45475a;"
+            " border-radius:4px; padding:4px 10px; font-size:12px; }"
+            "QPushButton:hover { background:#45475a; }"
+            "QPushButton:disabled { color:#585b70; }"
         )
 
+        # Token row first (so auto-detect can fill the others)
+        self._gh_token_input = QLineEdit()
+        self._gh_token_input.setPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx  (Personal Access Token)")
+        self._gh_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._gh_token_input.setText(self._settings.get("github_token", ""))
+        self._gh_token_input.setStyleSheet(_input_style)
+
+        self._gh_detect_btn = QPushButton("🔍 Auto-detect")
+        self._gh_detect_btn.setStyleSheet(_btn_sm)
+        self._gh_detect_btn.setToolTip(
+            "Detect your GitHub username from token\nand auto-fill Code + DSA repo URLs"
+        )
+        self._gh_detect_btn.clicked.connect(self._gh_auto_detect)
+
+        _tok_w = QWidget()
+        _tok_l = QHBoxLayout(_tok_w)
+        _tok_l.setContentsMargins(0, 0, 0, 0)
+        _tok_l.setSpacing(6)
+        _tok_l.addWidget(self._gh_token_input)
+        _tok_l.addWidget(self._gh_detect_btn)
+        gh_form.addRow("GitHub Token:", _tok_w)
+
+        # Status label shows result of auto-detect
+        self._gh_status_lbl = QLabel("")
+        self._gh_status_lbl.setStyleSheet("font-size:12px;")
+        gh_form.addRow("", self._gh_status_lbl)
+
+        # Code Repo URL
         self._gh_repo_input = QLineEdit()
         self._gh_repo_input.setPlaceholderText("https://github.com/username/my-code")
         self._gh_repo_input.setText(self._settings.get("github_repo", ""))
         self._gh_repo_input.setStyleSheet(_input_style)
         gh_form.addRow("Code Repo URL:", self._gh_repo_input)
 
+        # DSA Repo URL
         self._gh_dsa_repo_input = QLineEdit()
         self._gh_dsa_repo_input.setPlaceholderText("https://github.com/username/dsa-solutions")
         self._gh_dsa_repo_input.setText(self._settings.get("dsa_github_repo", ""))
         self._gh_dsa_repo_input.setStyleSheet(_input_style)
         gh_form.addRow("DSA Repo URL:", self._gh_dsa_repo_input)
 
-        self._gh_token_input = QLineEdit()
-        self._gh_token_input.setPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx  (Personal Access Token)")
-        self._gh_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._gh_token_input.setText(self._settings.get("github_token", ""))
-        self._gh_token_input.setStyleSheet(_input_style)
-        gh_form.addRow("GitHub Token:", self._gh_token_input)
-
         gh_hint = QLabel(
-            "<small>Token needs <b>Contents: Read & Write</b> permission.<br>"
-            "Create one at <a href='https://github.com/settings/tokens' style='color:#89b4fa;'>"
+            "<small>Token needs <b>Contents: Read &amp; Write</b> permission.<br>"
+            "Create at <a href='https://github.com/settings/tokens' style='color:#89b4fa;'>"
             "github.com/settings/tokens</a>."
-            "<br>Leave blank to disable GitHub push features.</small>"
+            "<br>Click <b>🔍 Auto-detect</b> to fill repo URLs automatically.</small>"
         )
         gh_hint.setOpenExternalLinks(True)
         gh_hint.setWordWrap(True)
@@ -327,6 +360,76 @@ class SettingsDialog(QDialog):
         self._settings["github_token"] = self._gh_token_input.text().strip()
         self.settings_changed.emit(self._settings)
         self.accept()
+
+
+    def _gh_auto_detect(self) -> None:
+        """Call GitHub /user API with the token to get username, then fill repo URLs."""
+        import json
+        import threading
+        import urllib.error
+        import urllib.request
+
+        token = self._gh_token_input.text().strip()
+        if not token:
+            self._gh_status_lbl.setStyleSheet("color:#f38ba8; font-size:12px;")
+            self._gh_status_lbl.setText("⚠ Paste your GitHub token first!")
+            return
+
+        self._gh_detect_btn.setEnabled(False)
+        self._gh_status_lbl.setStyleSheet("color:#89b4fa; font-size:12px;")
+        self._gh_status_lbl.setText("⏳ Detecting…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github+json",
+                        "User-Agent": "ncode-editor/1.0",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read().decode())
+                username = data.get("login", "")
+                if username:
+                    from PySide6.QtCore import QMetaObject, Qt as _Qt
+                    # Schedule UI update on main thread via queued call
+                    self._detected_username = username
+                    QMetaObject.invokeMethod(self, "_gh_apply_username", _Qt.ConnectionType.QueuedConnection)
+                else:
+                    self._detected_error = "Could not read username from token."
+                    from PySide6.QtCore import QMetaObject, Qt as _Qt
+                    QMetaObject.invokeMethod(self, "_gh_show_error", _Qt.ConnectionType.QueuedConnection)
+            except Exception as e:
+                self._detected_error = str(e)
+                from PySide6.QtCore import QMetaObject, Qt as _Qt
+                QMetaObject.invokeMethod(self, "_gh_show_error", _Qt.ConnectionType.QueuedConnection)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    @Slot()
+    def _gh_apply_username(self) -> None:
+        """Called on main thread after auto-detect succeeds."""
+        username = getattr(self, "_detected_username", "")
+        self._gh_detect_btn.setEnabled(True)
+        if not username:
+            return
+        # Only fill if currently empty
+        if not self._gh_repo_input.text().strip():
+            self._gh_repo_input.setText(f"https://github.com/{username}/my-code")
+        if not self._gh_dsa_repo_input.text().strip():
+            self._gh_dsa_repo_input.setText(f"https://github.com/{username}/dsa-solutions")
+        self._gh_status_lbl.setStyleSheet("color:#a6e3a1; font-size:12px;")
+        self._gh_status_lbl.setText(f"✅ Detected: @{username} — URLs filled!")
+
+    @Slot()
+    def _gh_show_error(self) -> None:
+        """Called on main thread after auto-detect fails."""
+        self._gh_detect_btn.setEnabled(True)
+        err = getattr(self, "_detected_error", "Unknown error")
+        self._gh_status_lbl.setStyleSheet("color:#f38ba8; font-size:12px;")
+        self._gh_status_lbl.setText(f"⚠ {err[:60]}")
 
     def get_settings(self) -> dict[str, Any]:
         return self._settings
