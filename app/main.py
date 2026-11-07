@@ -70,6 +70,7 @@ try:
     from app.dsa.checker import check_solution_async, CheckResult
     from app.dsa.starters import make_full_editor_content, SUPPORTED_LANGS as DSA_LANGS
     from app.dsa.seed_questions import seed as seed_questions
+    from app.dsa.leetcode_sync import get_leetcode_url, open_leetcode as _lc_open
     _HAS_DSA = True
 except ImportError:
     _HAS_DSA = False
@@ -1441,6 +1442,12 @@ class NitinEditor(QMainWindow):
             return
 
         if result.verdict == "correct":
+            try:
+                from app.dsa.leetcode_sync import get_leetcode_url as _glc_url
+                lc_url = _glc_url(q.title)
+            except Exception:
+                lc_url = None
+            lc_line = f"  🔗 LeetCode: {lc_url}" if lc_url else ""
             lines = [
                 f"✅  CORRECT SOLUTION — {q.title}",
                 "=" * 60,
@@ -1452,6 +1459,9 @@ class NitinEditor(QMainWindow):
                 "━" * 60,
                 "  🎉 Great work! Your solution is accepted.",
             ]
+            if lc_line:
+                lines.append("")
+                lines.append(lc_line)
             self._dsa_feedback_area.setPlainText("\n".join(lines))
             self._set_status(f"✅ Correct! {q.title}")
 
@@ -1481,6 +1491,13 @@ class NitinEditor(QMainWindow):
                 "  💡 Hint  (not the full solution):",
                 f"  {result.hint if result.hint else 'Keep thinking — you can do it!'}",
             ]
+            try:
+                from app.dsa.leetcode_sync import get_leetcode_url as _glc_url2
+                lc_url2 = _glc_url2(q.title)
+            except Exception:
+                lc_url2 = None
+            if lc_url2:
+                lines += ["", f"  🔗 LeetCode: {lc_url2}"]
             self._dsa_feedback_area.setPlainText("\n".join(lines))
             self._set_status(f"❌ Needs work — {q.title}")
 

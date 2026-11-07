@@ -18,6 +18,7 @@ from app.dsa.bank import Question, get_all_questions, search_questions, get_topi
 from app.dsa.storage import (
     get_solved_ids, get_progress, get_topic_progress, get_sheet_progress, init_solutions_db
 )
+from app.dsa.leetcode_sync import get_leetcode_url, open_leetcode
 
 
 # ── Palette ──────────────────────────────────────────────────────────────────
@@ -160,6 +161,36 @@ class DSAPanel(QWidget):
         self._q_list.itemClicked.connect(self._on_item_clicked)
         self._q_list.itemDoubleClicked.connect(self._on_item_clicked)
         root.addWidget(self._q_list, stretch=1)
+
+        # LeetCode quick-action bar (shown after a question is selected)
+        self._lc_bar = QWidget()
+        self._lc_bar.setStyleSheet(
+            f"background:{_BG2}; border-top:1px solid {_BORDER};"
+        )
+        lc_layout = QHBoxLayout(self._lc_bar)
+        lc_layout.setContentsMargins(8, 4, 8, 4)
+        lc_layout.setSpacing(6)
+
+        self._lc_btn = QPushButton("🔗 LeetCode")
+        self._lc_btn.setStyleSheet(
+            f"QPushButton {{ background:{_BORDER}; color:{_ACCENT}; border:none; "
+            f"border-radius:5px; padding:4px 10px; font-size:11px; font-weight:bold; }}"
+            f"QPushButton:hover {{ background:#45475a; }}"
+        )
+        self._lc_btn.setToolTip("Open this question on LeetCode")
+        self._lc_btn.clicked.connect(self._open_leetcode_for_selected)
+        lc_layout.addWidget(self._lc_btn)
+
+        self._lc_url_label = QLabel("")
+        self._lc_url_label.setStyleSheet(
+            f"color:{_MUTED}; font-size:10px;"
+        )
+        self._lc_url_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        lc_layout.addWidget(self._lc_url_label, stretch=1)
+        self._lc_bar.setVisible(False)
+        root.addWidget(self._lc_bar)
 
         # Footer stats
         self._footer = QLabel("0 questions")
@@ -452,6 +483,29 @@ class DSAPanel(QWidget):
         q = item.data(Qt.ItemDataRole.UserRole)
         if q is not None:
             self.question_selected.emit(q)
+            self._update_lc_bar(q)
+
+    def _update_lc_bar(self, q: "Question") -> None:
+        """Show the LeetCode action bar for the selected question."""
+        url = get_leetcode_url(q.title)
+        if url:
+            self._lc_url_label.setText(url)
+            self._lc_btn.setToolTip(f"Open on LeetCode: {url}")
+        else:
+            self._lc_url_label.setText("No LeetCode link found")
+        self._lc_bar.setVisible(True)
+
+    def _open_leetcode_for_selected(self) -> None:
+        """Open LeetCode page for the currently selected question."""
+        item = self._q_list.currentItem()
+        if item is None:
+            return
+        q = item.data(Qt.ItemDataRole.UserRole)
+        if q is None:
+            return
+        found = open_leetcode(q.title)
+        if not found:
+            self._lc_url_label.setText("No LeetCode link found")
 
     def mark_solved(self, question_id: int) -> None:
         """Call after saving a solution to update UI immediately."""
