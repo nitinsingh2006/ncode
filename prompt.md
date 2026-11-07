@@ -380,6 +380,8 @@ self._left_tabs.addTab(self._my_sidebar, "🔖 MySidebar")
 | 2026-11-07 | File Tree Sidebar: app/file_tree.py, left QTabWidget (Files + DSA), Ctrl+Shift+F |
 | 2026-11-07 | 🐙 Push button in toolbar (green), smart push (DSA→DSA repo, regular→code repo), Ctrl+Shift+U |
 | 2026-11-07 | prompt.md created — full AI continuation guide |
+| 2026-11-07 | GitHub Settings: 🔍 Auto-detect button (fetches username from token, fills repo URLs) |
+| 2026-11-07 | github_pusher.py rewrite: optimistic PUT (no SHA pre-fetch), DSA parallel threads — 2x faster push |
 
 ---
 

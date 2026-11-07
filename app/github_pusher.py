@@ -2,38 +2,30 @@
 Nitin Editor — app/github_pusher.py
 GitHub push helper using GitHub REST API (urllib only, no extra deps).
 
-Supports:
-  - push_code_file()   : push any code file to a GitHub repo
-  - push_dsa_solution(): push DSA problem + solution to a separate repo
+Speed strategy:
+  - Optimistic PUT (no SHA pre-fetch) — saves 1 round-trip per file
+  - If GitHub returns 422 (file exists, needs SHA) → GET sha then retry
+  - DSA: both files pushed in parallel threads → 2 round-trips instead of 4
 """
 from __future__ import annotations
 
 import base64
 import json
 import re
+import threading
 import urllib.error
 import urllib.request
 from typing import Optional
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_owner_repo(repo_url: str) -> tuple[str, str]:
-    """
-    Extract (owner, repo) from a GitHub URL.
-    Accepts formats:
-      https://github.com/owner/repo
-      https://github.com/owner/repo.git
-      git@github.com:owner/repo.git
-    """
+    """Extract (owner, repo) from a GitHub URL (https or git@)."""
     repo_url = repo_url.strip().rstrip("/")
-    # git@github.com:owner/repo.git
     m = re.match(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?$", repo_url)
     if m:
         return m.group(1), m.group(2)
-    # https://github.com/owner/repo[.git]
     m = re.match(r"https?://github\.com/([^/]+)/(.+?)(?:\.git)?$", repo_url)
     if m:
         return m.group(1), m.group(2)
@@ -41,7 +33,6 @@ def _parse_owner_repo(repo_url: str) -> tuple[str, str]:
 
 
 def _lang_to_ext(language: str) -> str:
-    """Map language name to file extension."""
     _MAP = {
         "Python": "py", "C++": "cpp", "C": "c", "Java": "java",
         "JavaScript": "js", "TypeScript": "ts", "Go": "go", "Rust": "rs",
@@ -54,51 +45,61 @@ def _lang_to_ext(language: str) -> str:
     return _MAP.get(language, "txt")
 
 
-def _github_api_request(
-    method: str,
-    path: str,
+def _make_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        "User-Agent": "ncode-editor/1.0",
+    }
+
+
+def _put_file(
+    owner: str,
+    repo: str,
+    file_path: str,
     token: str,
-    body: Optional[dict] = None,
-) -> dict:
-    """Make a GitHub REST API request. Returns parsed JSON response."""
-    url = f"https://api.github.com{path}"
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Content-Type": "application/json",
-            "User-Agent": "ncode-editor/1.0",
-        },
-    )
+    content_b64: str,
+    commit_msg: str,
+) -> None:
+    """
+    Optimistic PUT — no pre-fetch of SHA.
+    If GitHub returns 422 (file already exists), GET sha then retry once.
+    Raises RuntimeError on failure.
+    """
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
+    headers = _make_headers(token)
+
+    def _do_put(sha: Optional[str] = None) -> None:
+        body: dict = {"message": commit_msg, "content": content_b64}
+        if sha:
+            body["sha"] = sha
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(), method="PUT", headers=headers
+        )
+        with urllib.request.urlopen(req, timeout=20) as _:
+            pass  # 200/201 → success
+
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            return json.loads(resp.read().decode())
+        _do_put()          # optimistic — no sha needed for new files
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        raise RuntimeError(f"GitHub API {e.code}: {body_text}") from e
+        # 422 = file already exists, need SHA to update
+        if e.code == 422:
+            # GET sha, then retry
+            get_req = urllib.request.Request(url, method="GET", headers=headers)
+            try:
+                with urllib.request.urlopen(get_req, timeout=10) as r:
+                    sha = json.loads(r.read().decode()).get("sha")
+                _do_put(sha)
+            except urllib.error.HTTPError as e2:
+                raise RuntimeError(f"GitHub API {e2.code}: {e2.read().decode(errors='replace')}") from e2
+        else:
+            raise RuntimeError(f"GitHub API {e.code}: {body_text}") from e
 
 
-def _get_file_sha(owner: str, repo: str, path: str, token: str) -> Optional[str]:
-    """Return the SHA of an existing file, or None if it doesn't exist."""
-    try:
-        resp = _github_api_request(
-            "GET", f"/repos/{owner}/{repo}/contents/{path}", token
-        )
-        return resp.get("sha")
-    except RuntimeError as e:
-        if "404" in str(e):
-            return None
-        raise
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Public API
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def push_code_file(
     repo_url: str,
@@ -109,11 +110,7 @@ def push_code_file(
     commit_msg: str = "",
     subfolder: str = "code",
 ) -> tuple[bool, str]:
-    """
-    Push a single code file to the given GitHub repo.
-
-    Returns (success: bool, message: str).
-    """
+    """Push a single code file. Returns (success, message)."""
     if not repo_url or not token:
         return False, "GitHub repo URL or token not configured."
     try:
@@ -122,23 +119,15 @@ def push_code_file(
         return False, str(e)
 
     ext = _lang_to_ext(language)
-    # Clean filename: strip extension, add correct one
     base = re.sub(r"\.[^.]+$", "", filename) or "untitled"
-    # Sanitize path chars
     base = re.sub(r'[\\/:*?"<>|]', "_", base)
     file_path = f"{subfolder}/{base}.{ext}" if subfolder else f"{base}.{ext}"
-
     content_b64 = base64.b64encode(code.encode()).decode()
-    sha = _get_file_sha(owner, repo, file_path, token)
-
     msg = commit_msg or f"ncode: add/update {base}.{ext}"
-    body: dict = {"message": msg, "content": content_b64}
-    if sha:
-        body["sha"] = sha
 
     try:
-        _github_api_request("PUT", f"/repos/{owner}/{repo}/contents/{file_path}", token, body)
-        return True, f"✅ Pushed to {owner}/{repo}/{file_path}"
+        _put_file(owner, repo, file_path, token, content_b64, msg)
+        return True, f"✅ Pushed → {owner}/{repo}/{file_path}"
     except RuntimeError as e:
         return False, f"Push failed: {e}"
 
@@ -154,13 +143,9 @@ def push_dsa_solution(
     code: str,
 ) -> tuple[bool, str]:
     """
-    Push a DSA solution to the DSA GitHub repo.
-
-    Creates:
-      {topic}/{slug}/README.md   ← problem statement
-      {topic}/{slug}/solution.{ext}  ← user's code
-
-    Returns (success: bool, message: str).
+    Push DSA solution to DSA repo.
+    Both README.md and solution.{ext} pushed in PARALLEL threads.
+    Returns (success, message).
     """
     if not repo_url or not token:
         return False, "DSA GitHub repo URL or token not configured."
@@ -169,15 +154,13 @@ def push_dsa_solution(
     except ValueError as e:
         return False, str(e)
 
-    # Build folder slug
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", question_title).strip("_").lower()
     topic_slug = re.sub(r"[^a-zA-Z0-9]+", "_", topic).strip("_").lower() if topic else "misc"
     folder = f"{topic_slug}/{slug}"
-
     ext = _lang_to_ext(language)
+    commit_msg = f"dsa: {question_title} — {language} solution"
 
-    # README.md content
-    readme_content = f"""# {question_title}
+    readme = f"""# {question_title}
 
 **Topic:** {topic}  
 **Difficulty:** {difficulty}  
@@ -196,28 +179,32 @@ def push_dsa_solution(
 See [`solution.{ext}`](./solution.{ext})
 """
 
-    errors = []
-    pushed = []
+    files = [
+        (f"{folder}/README.md",        readme),
+        (f"{folder}/solution.{ext}",   code),
+    ]
 
-    for file_name, content in [
-        ("README.md", readme_content),
-        (f"solution.{ext}", code),
-    ]:
-        file_path = f"{folder}/{file_name}"
-        content_b64 = base64.b64encode(content.encode()).decode()
-        sha = _get_file_sha(owner, repo, file_path, token)
-        body: dict = {
-            "message": f"dsa: {question_title} — {language} solution",
-            "content": content_b64,
-        }
-        if sha:
-            body["sha"] = sha
+    errors: list[str] = []
+    lock = threading.Lock()
+
+    def _push_one(file_path: str, content: str) -> None:
+        b64 = base64.b64encode(content.encode()).decode()
         try:
-            _github_api_request("PUT", f"/repos/{owner}/{repo}/contents/{file_path}", token, body)
-            pushed.append(file_name)
+            _put_file(owner, repo, file_path, token, b64, commit_msg)
         except RuntimeError as e:
-            errors.append(f"{file_name}: {e}")
+            with lock:
+                errors.append(f"{file_path.split('/')[-1]}: {e}")
+
+    # Fire both uploads in parallel
+    threads = [
+        threading.Thread(target=_push_one, args=(fp, ct), daemon=True)
+        for fp, ct in files
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     if errors:
         return False, "Some files failed:\n" + "\n".join(errors)
-    return True, f"✅ DSA solution pushed → {owner}/{repo}/{folder}/"
+    return True, f"✅ DSA pushed → {owner}/{repo}/{folder}/"
