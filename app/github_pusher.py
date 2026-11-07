@@ -55,6 +55,30 @@ def _make_headers(token: str) -> dict:
     }
 
 
+def _create_repo(owner: str, repo: str, token: str) -> None:
+    """Create a GitHub repo via API if it does not exist."""
+    url = "https://api.github.com/user/repos"
+    body = {
+        "name": repo,
+        "description": "Created by ncode editor",
+        "private": False,
+        "auto_init": True,   # creates default branch with README so contents API works
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode(), method="POST",
+        headers=_make_headers(token),
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as _:
+            pass  # 201 Created
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode(errors="replace")
+        if e.code == 422:
+            pass  # repo already exists — fine
+        else:
+            raise RuntimeError(f"Cannot create repo: {e.code}: {body_text}") from e
+
+
 def _put_file(
     owner: str,
     repo: str,
@@ -65,8 +89,9 @@ def _put_file(
 ) -> None:
     """
     Optimistic PUT — no pre-fetch of SHA.
-    If GitHub returns 422 (file already exists), GET sha then retry once.
-    Raises RuntimeError on failure.
+    - 201/200 → success (new/updated file)
+    - 404     → repo missing → auto-create repo → retry
+    - 422     → file exists, need SHA → GET sha → retry once
     """
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
     headers = _make_headers(token)
@@ -79,15 +104,33 @@ def _put_file(
             url, data=json.dumps(body).encode(), method="PUT", headers=headers
         )
         with urllib.request.urlopen(req, timeout=20) as _:
-            pass  # 200/201 → success
+            pass
 
     try:
-        _do_put()          # optimistic — no sha needed for new files
+        _do_put()
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        # 422 = file already exists, need SHA to update
-        if e.code == 422:
-            # GET sha, then retry
+        if e.code == 404:
+            # Repo doesn't exist → create it, then retry
+            _create_repo(owner, repo, token)
+            import time; time.sleep(1)  # give GitHub a moment to initialise
+            try:
+                _do_put()
+            except urllib.error.HTTPError as e2:
+                bt2 = e2.read().decode(errors="replace")
+                if e2.code == 422:
+                    # auto_init created README → need sha for any existing file
+                    get_req = urllib.request.Request(url, method="GET", headers=headers)
+                    try:
+                        with urllib.request.urlopen(get_req, timeout=10) as r:
+                            sha = json.loads(r.read().decode()).get("sha")
+                        _do_put(sha)
+                    except urllib.error.HTTPError as e3:
+                        raise RuntimeError(f"GitHub API {e3.code}: {e3.read().decode(errors='replace')}") from e3
+                else:
+                    raise RuntimeError(f"GitHub API {e2.code}: {bt2}") from e2
+        elif e.code == 422:
+            # File exists and needs SHA
             get_req = urllib.request.Request(url, method="GET", headers=headers)
             try:
                 with urllib.request.urlopen(get_req, timeout=10) as r:
